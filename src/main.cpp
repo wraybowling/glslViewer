@@ -568,6 +568,10 @@ void main() {\n\
 
 }
 
+float getAnalog(int channel) {
+    return rand();
+}
+
 void draw() {
     if (shader.needBackbuffer()) {
         buffer.swap();
@@ -600,6 +604,12 @@ void draw() {
         shader.setUniform("u_eye3d", u_eye3d);
         shader.setUniform("u_centre3d", u_centre3d);
         shader.setUniform("u_up3d", u_up3d);
+    }
+    // Analog inputs from MCP3008 passed as uniforms
+    for (int channel=0; channel<8; channel++) {
+        if (shader.needAnalog(channel)) {
+            shader.setUniform("u_analog"+channel, getAnalog(channel));
+        }
     }
 
     for (UniformList::iterator it=uniforms.begin(); it!=uniforms.end(); ++it) {
