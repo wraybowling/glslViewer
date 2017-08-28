@@ -20,6 +20,7 @@
 #include "types/shapes.h"
 #include "glm/gtx/matrix_transform_2d.hpp"
 #include "glm/gtx/rotate_vector.hpp"
+#include "raspberrypi/getAnalog.h"
 
 #include "ui/cursor.h"
 
@@ -566,10 +567,6 @@ void main() {\n\
     // Clear the background
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-}
-
-float getAnalog(int channel) {
-    return rand();
 }
 
 void draw() {
