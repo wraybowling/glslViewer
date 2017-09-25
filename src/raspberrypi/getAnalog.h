@@ -1,6 +1,6 @@
 #include <wiringPi.h>
 #include <wiringPiSPI.h>
 
-//	GET
+// GET
 //----------------------------------------------
 float getAnalog(int channel);

@@ -18,7 +18,7 @@ endif
 #$(info Platform ${PLATFORM})
 
 INCLUDES +=	-Isrc/ -Iinclude/
-CFLAGS += -Wall -O3 -std=c++11 -fpermissive
+CFLAGS += -Wall -O3 -std=c++11 -fpermissive -lwiringPi
 
 ifeq ($(PLATFORM),Raspbian GNU/Linux)
 CFLAGS += -DGLM_FORCE_CXX98 -DPLATFORM_RPI

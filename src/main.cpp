@@ -604,9 +604,9 @@ void draw() {
     }
     // Analog inputs from MCP3008 passed as uniforms
     for (int channel=0; channel<8; channel++) {
-        if (shader.needAnalog(channel)) {
+//        if (shader.needAnalog(channel)) {
             shader.setUniform("u_analog"+channel, getAnalog(channel));
-        }
+//        }
     }
 
     for (UniformList::iterator it=uniforms.begin(); it!=uniforms.end(); ++it) {
