@@ -3,4 +3,5 @@
 
 // GET
 //----------------------------------------------
-float getAnalog(int channel);
+int mcp3008Setup();
+float mcp3008Read(int channel);

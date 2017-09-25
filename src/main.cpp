@@ -20,7 +20,7 @@
 #include "types/shapes.h"
 #include "glm/gtx/matrix_transform_2d.hpp"
 #include "glm/gtx/rotate_vector.hpp"
-#include "raspberrypi/getAnalog.h"
+#include "raspberrypi/mcp3008.h"
 
 #include "ui/cursor.h"
 
@@ -331,6 +331,7 @@ int main(int argc, char **argv){
 
     // Start working on the GL context
     setup();
+    mcp3008Setup(); // analog inputs for raspberry pi
 
     // Render Loop
     while (isGL() && bRun.load()) {
@@ -605,7 +606,7 @@ void draw() {
     // Analog inputs from MCP3008 passed as uniforms
     for (int channel=0; channel<8; channel++) {
 //        if (shader.needAnalog(channel)) {
-            shader.setUniform("u_analog"+channel, getAnalog(channel));
+            shader.setUniform("u_analog"+channel, mcp3008Read(channel));
 //        }
     }
 
