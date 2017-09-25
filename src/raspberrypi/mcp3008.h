@@ -1,7 +1,7 @@
+#pragma once
+
 #include <wiringPi.h>
 #include <wiringPiSPI.h>
 
-// GET
-//----------------------------------------------
-int mcp3008Setup();
-float mcp3008Read(int channel);
+void initMCP();
+float readMCP(int channel);

@@ -331,7 +331,6 @@ int main(int argc, char **argv){
 
     // Start working on the GL context
     setup();
-    mcp3008Setup(); // analog inputs for raspberry pi
 
     // Render Loop
     while (isGL() && bRun.load()) {
@@ -568,6 +567,8 @@ void main() {\n\
     // Clear the background
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+    // Prep the ADC
+    initMCP();
 }
 
 void draw() {
@@ -603,12 +604,17 @@ void draw() {
         shader.setUniform("u_centre3d", u_centre3d);
         shader.setUniform("u_up3d", u_up3d);
     }
-    // Analog inputs from MCP3008 passed as uniforms
-    for (int channel=0; channel<8; channel++) {
-//        if (shader.needAnalog(channel)) {
-            shader.setUniform("u_analog"+channel, mcp3008Read(channel));
-//        }
-    }
+
+    // Analog inputs from MCP3008
+    shader.setUniform("u_analog0", readMCP(0));
+    shader.setUniform("u_analog1", readMCP(1));
+    shader.setUniform("u_analog2", readMCP(2));
+    shader.setUniform("u_analog3", readMCP(3));
+    shader.setUniform("u_analog4", readMCP(4));
+    shader.setUniform("u_analog5", readMCP(5));
+    shader.setUniform("u_analog6", readMCP(6));
+    shader.setUniform("u_analog7", readMCP(7));
+
 
     for (UniformList::iterator it=uniforms.begin(); it!=uniforms.end(); ++it) {
         if (it->second.bInt) {
