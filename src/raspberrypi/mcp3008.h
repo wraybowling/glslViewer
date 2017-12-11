@@ -5,3 +5,4 @@
 
 void initMCP();
 float readMCP(int channel);
+float readMCPBasic(int channel);

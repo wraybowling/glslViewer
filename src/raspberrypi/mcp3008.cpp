@@ -24,26 +24,16 @@
 
 #define CHANNEL_CONFIG_SINGLE_ENDED 8
 
-#define BASE 64
+#define BASE 100
 #define SPI_CHANNEL 0
 #define CLOCK_SPEED 500000
 
-void initMCP()
-{
-//  wiringPiSetup();
+void initMCP() {
   wiringPiSPISetup(SPI_CHANNEL, CLOCK_SPEED);
-  mcp3004Setup(BASE, 0);
-//  int channel;
-//  while(1){
-//    for(channel=0; channel<1; channel++){
-//      printf("u_%i,%f%c", channel, (analogRead(channel) / 1024.0), '\n' );
-//      sleep(1);
-//    }
-//  }
+  mcp3004Setup(BASE, SPI_CHANNEL);
 }
 
-float readMCP(int channel)
-{
+float readMCP(int channel) {
   unsigned char buffer[3] = {1}; // start bit
   buffer[1] = (CHANNEL_CONFIG_SINGLE_ENDED + channel) << 4;
   wiringPiSPIDataRW(channel, buffer, 3);
@@ -51,3 +41,6 @@ float readMCP(int channel)
   return result / 1023.0;
 }
 
+float readMCPBasic(int channel) {
+  return analogRead(BASE + channel) / 1023.0;
+}

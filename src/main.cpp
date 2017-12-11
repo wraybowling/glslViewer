@@ -606,14 +606,14 @@ void draw() {
     }
 
     // Analog inputs from MCP3008
-    shader.setUniform("u_analog0", readMCP(0));
-    shader.setUniform("u_analog1", readMCP(1));
-    shader.setUniform("u_analog2", readMCP(2));
-    shader.setUniform("u_analog3", readMCP(3));
-    shader.setUniform("u_analog4", readMCP(4));
-    shader.setUniform("u_analog5", readMCP(5));
-    shader.setUniform("u_analog6", readMCP(6));
-    shader.setUniform("u_analog7", readMCP(7));
+    shader.setUniform("u_analog0", readMCPBasic(0));
+    shader.setUniform("u_analog1", readMCPBasic(1));
+//    shader.setUniform("u_analog2", readMCP(2));
+//    shader.setUniform("u_analog3", readMCP(3));
+//    shader.setUniform("u_analog4", readMCP(4));
+//    shader.setUniform("u_analog5", readMCP(5));
+//    shader.setUniform("u_analog6", readMCP(6));
+//    shader.setUniform("u_analog7", readMCP(7));
 
 
     for (UniformList::iterator it=uniforms.begin(); it!=uniforms.end(); ++it) {
