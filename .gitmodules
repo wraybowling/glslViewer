@@ -1,0 +1,4 @@
+[submodule "include/liblo"]
+	path = include/liblo
+	url = git://liblo.git.sourceforge.net/gitroot/liblo/liblo
+
