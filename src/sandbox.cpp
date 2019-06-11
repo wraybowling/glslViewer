@@ -2,6 +2,7 @@
 
 #include <sys/stat.h>   // stat
 #include <algorithm>    // std::find
+#include <math.h>
 
 #include "window.h"
 
@@ -27,7 +28,7 @@ Sandbox::Sandbox():
     // Camera.
     m_mvp(1.0), m_view2d(1.0), m_lat(180.0), m_lon(0.0),
     // CubeMap
-    m_cubemap_vbo(nullptr), m_cubemap(nullptr), m_cubemap_draw(false),
+    m_cubemap_vbo(nullptr), m_cubemap(nullptr), m_cubemap_skybox(nullptr), m_cubemap_draw(false),
     // Background
     m_background_enabled(false),
     // Buffers
@@ -113,7 +114,7 @@ Sandbox::Sandbox():
     },
     [this]() { return toString(m_light.color, ','); });
 
-     uniforms_functions["u_lightMatrix"] = UniformFunction("mat4", [this](Shader& _shader) {
+    uniforms_functions["u_lightMatrix"] = UniformFunction("mat4", [this](Shader& _shader) {
         _shader.setUniform("u_lightMatrix", m_light.getBiasMVPMatrix() );
     });
 
@@ -294,12 +295,6 @@ void Sandbox::setup( WatchFileList &_files ) {
 
     m_shader.load(m_frag_source, m_vert_source, defines, verbose);
     _updateDependencies( _files );
-    
-    // CUBEMAP
-    if (m_cubemap_draw) {
-        m_cubemap_vbo = cube(1.0f).getVbo();
-        m_cubemap_shader.load(cube_frag, cube_vert, defines, false);
-    }
 
     // Turn on Alpha blending
     glEnable(GL_BLEND);
@@ -553,6 +548,17 @@ void Sandbox::_renderBuffers() {
 }
 
 void Sandbox::_renderBackground() {
+    // If there is a skybox and it had changes re generate
+    if (m_cubemap_skybox) {
+        if (m_cubemap_skybox->change) {
+            if (!m_cubemap) {
+                m_cubemap = new TextureCube();
+            }
+            m_cubemap->generate(m_cubemap_skybox);
+            m_cubemap_skybox->change = false;
+        }
+    }
+
     if (m_background_enabled) {
         m_textureIndex = 0;
         m_background_shader.use();
@@ -571,7 +577,13 @@ void Sandbox::_renderBackground() {
         m_billboard_vbo->draw( &m_background_shader );
     }
     // CUBEMAP
-    else if (geom_index != -1 && m_cubemap_draw) {
+    else if (geom_index != -1 && m_cubemap && m_cubemap_draw) {
+
+        if (!m_cubemap_vbo) {
+            m_cubemap_vbo = cube(1.0f).getVbo();
+            m_cubemap_shader.load(cube_frag, cube_vert, defines, false);
+        }
+
         m_textureIndex = 0;
         m_cubemap_shader.use();
 
@@ -702,7 +714,7 @@ void Sandbox::drawDebug3D() {
                 m_wireframe3D_shader.load(wireframe3D_frag, wireframe3D_vert, defines, false);
             glLineWidth(3.0f);
             m_wireframe3D_shader.use();
-            m_wireframe3D_shader.setUniform("u_color", glm::vec4(1.0));
+            m_wireframe3D_shader.setUniform("u_color", glm::vec4(1.0,1.0,0.0,1.0));
             m_wireframe3D_shader.setUniform("u_modelViewProjectionMatrix", m_mvp);
             m_bbox_vbo->draw( &m_wireframe3D_shader );
         }
@@ -997,10 +1009,16 @@ void Sandbox::onMouseDrag(float _x, float _y, int _button) {
     if (_button == 1) {
         // Left-button drag is used to rotate geometry.
         float dist = m_cam.getDistance();
-        m_lat -= getMouseVelX();
-        m_lon -= getMouseVelY() * 0.5;
-        m_cam.orbit(m_lat, m_lon, dist);
-        m_cam.lookAt(glm::vec3(0.0));
+
+        float vel_x = getMouseVelX();
+        float vel_y = getMouseVelY();
+
+        if (fabs(vel_x) < 50.0 && fabs(vel_y) < 50.0) {
+            m_lat -= vel_x;
+            m_lon -= vel_y * 0.5;
+            m_cam.orbit(m_lat, m_lon, dist);
+            m_cam.lookAt(glm::vec3(0.0));
+        }
 
         // Left-button drag is used to pan u_view2d.
         m_view2d = glm::translate(m_view2d, -getMouseVelocity());
@@ -1039,6 +1057,7 @@ void Sandbox::onScreenshot(std::string _file) {
         unsigned char* pixels = new unsigned char[getWindowWidth() * getWindowHeight()*4];
         glReadPixels(0, 0, getWindowWidth(), getWindowHeight(), GL_RGBA, GL_UNSIGNED_BYTE, pixels);
         savePixels(_file, pixels, getWindowWidth(), getWindowHeight());
+        delete[] pixels;
 
         if (!m_record) {
             std::cout << "// Screenshot saved to " << _file << std::endl;
