@@ -1,4 +1,4 @@
-[submodule "include/liblo"]
-	path = include/liblo
-	url = git://liblo.git.sourceforge.net/gitroot/liblo/liblo
 
+[submodule "include/oscpack"]
+	path = include/oscpack
+	url = https://github.com/RossBencina/oscpack.git
