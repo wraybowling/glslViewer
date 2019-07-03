@@ -31,13 +31,14 @@ class GlslViewer:
 
         # compose and excecute a glslViewer command
         self.cmd = [self.COMMAND]
-        self.cmd.append(filename)
+
+        if 'geometry' in options:
+            self.cmd.append(options['geometry'])
 
         if 'vertex' in options:
             self.cmd.append(options['vertex'])
 
-        if 'geometry' in options:
-            self.cmd.append(options['geometry'])
+        self.cmd.append(filename)
 
         if 'headless' in options:
             if options['headless']:
@@ -103,6 +104,7 @@ class GlslViewer:
                 self.cmd.append('-' + tex_name)
                 self.cmd.append(options['textures_vflipped'][tex_name])
 
+
     def start(self):
         if self.isRunning():
             return False
@@ -124,6 +126,7 @@ class GlslViewer:
 
         return True
 
+
     def stop(self):
         if not self.isRunning():
             return False
@@ -134,14 +137,17 @@ class GlslViewer:
         self.process = None
         return True
 
+
     def isRunning(self):
         return self.process is not None
+
 
     def isFinish(self):
         if not self.isRunning():
             return False
 
         return self.process.poll() is not None
+
 
     def read(self):
         if not self.isRunning():
@@ -152,6 +158,7 @@ class GlslViewer:
             except OSError:
                 return 'none'
 
+
     def write(self, cmd):
         if not self.isRunning():
             return False
@@ -161,6 +168,7 @@ class GlslViewer:
             return self.read()
         except:
             self.process = None
+
 
     def setUniform(self, name, value):
         if not self.isRunning():
@@ -173,6 +181,7 @@ class GlslViewer:
         else:
             cmd += ',' + str(value)
         return self.write(cmd)
+
 
     def setUniforms(self, uniforms_dict):
         if not self.isRunning():
@@ -189,11 +198,13 @@ class GlslViewer:
             else:
                 self.setUniform(uniform, uniforms_dict[uniform])
 
+
     def getCommand(self):
         cmd = ''
         for argument in self.cmd:
             cmd += argument + ' '
         return cmd
+
 
     def getFragment(self):
         if not self.isRunning():
@@ -201,11 +212,13 @@ class GlslViewer:
         answer = self.write('frag')
         return answer
 
+
     def getVertex(self):
         if not self.isRunning():
             return False
         answer = self.write('vert')
         return answer
+
 
     def getTime(self):
         if not self.isRunning():
@@ -229,6 +242,7 @@ class GlslViewer:
                 self.delta = float(answer[0])
         return self.delta
 
+
     def getFPS(self):
         if not self.isRunning():
             return False
@@ -239,6 +253,7 @@ class GlslViewer:
             if answer[0].replace('.', '', 1).isdigit():
                 self.fps = float(answer[0])
         return self.fps
+
 
     def test(self, duration, record_from=0.0):
         if not self.isRunning():
@@ -259,8 +274,22 @@ class GlslViewer:
                 })
         return values
 
+
     def screenshot(self, filename):
         if not self.isRunning():
             return False
         answer = self.write('screenshot,' + filename)
+        return answer
+
+
+    def sequence(self,start_second, end_second):
+        if not self.isRunning():
+            return False
+        answer = self.write('sequence,' + str(start_second) + ',' + str(end_second))
+        return answer
+
+    def setCamera(self, x, y, z):
+        if not self.isRunning():
+            return False
+        answer = self.write('camera_position,' + str(x) + ',' + str(y) + ',' + str(z))
         return answer
