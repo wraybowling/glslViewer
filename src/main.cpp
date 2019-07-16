@@ -16,6 +16,8 @@
 #include "tools/skybox.h"
 #include "tools/command.h"
 
+#include "osc-server.h"
+
 // GLOBAL VARIABLES
 //============================================================================
 //
