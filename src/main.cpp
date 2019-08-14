@@ -1249,6 +1249,15 @@ int main(int argc, char **argv){
         if ( timeLimit >= 0.0 && getTime() >= timeLimit ) {
             bRun.store(false);
         }
+
+        MyPacketListener listener;
+        UdpListeningReceiveSocket s(
+            IpEndpointName( IpEndpointName::ANY_ADDRESS, 1234 ),
+            &listener );
+
+        std::cout << "osc messages...";
+        //s.Run();
+        s.RunUntilSigInt();
     }
 
     // If is terminated by the windows manager, turn bRun off so the fileWatcher can stop
