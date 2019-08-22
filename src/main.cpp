@@ -868,6 +868,16 @@ void declareCommands() {
     "exit                       close glslViewer"));
 }
 
+void OscThread() {
+  MyPacketListener listener;
+  UdpListeningReceiveSocket s(
+      IpEndpointName( IpEndpointName::ANY_ADDRESS, 7000 ),
+      &listener );
+
+  std::cout << "osc messages...";
+  s.Run();
+}
+
 // Main program
 //============================================================================
 int main(int argc, char **argv){
@@ -1208,6 +1218,8 @@ int main(int argc, char **argv){
     std::thread fileWatcher( &fileWatcherThread );
     std::thread cinWatcher( &cinWatcherThread );
 
+    std::thread lt(OscThread);
+
     // Start working on the GL context
     filesMutex.lock();
     sandbox.setup(files);
@@ -1250,14 +1262,6 @@ int main(int argc, char **argv){
             bRun.store(false);
         }
 
-        MyPacketListener listener;
-        UdpListeningReceiveSocket s(
-            IpEndpointName( IpEndpointName::ANY_ADDRESS, 7000 ),
-            &listener );
-
-        std::cout << "osc messages...";
-        s.Run();
-        //s.RunUntilSigInt();
     }
 
     // If is terminated by the windows manager, turn bRun off so the fileWatcher can stop
