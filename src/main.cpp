@@ -868,16 +868,6 @@ void declareCommands() {
     "exit                       close glslViewer"));
 }
 
-void OscThread() {
-  MyPacketListener listener;
-  UdpListeningReceiveSocket s(
-      IpEndpointName( IpEndpointName::ANY_ADDRESS, 7000 ),
-      &listener );
-
-  std::cout << "osc messages...";
-  s.Run();
-}
-
 // Main program
 //============================================================================
 int main(int argc, char **argv){
@@ -1217,7 +1207,6 @@ int main(int argc, char **argv){
     fileChanged = -1;
     std::thread fileWatcher( &fileWatcherThread );
     std::thread cinWatcher( &cinWatcherThread );
-
     std::thread lt(OscThread);
 
     // Start working on the GL context
@@ -1325,7 +1314,7 @@ void onExit() {
 }
 
 
-//  Watching Thread
+// Watching Thread
 //============================================================================
 void fileWatcherThread() {
     struct stat st;
@@ -1346,7 +1335,7 @@ void fileWatcherThread() {
     }
 }
 
-//  Command line Thread
+// Command line Thread
 //============================================================================
 void cinWatcherThread() {
     while (!sandbox.isReady()) {
@@ -1397,3 +1386,16 @@ void cinWatcherThread() {
         std::cout << "// > ";
     }
 }
+
+// Open Sound Control Thread
+//============================================================================
+void OscThread() {
+  MyPacketListener listener;
+  UdpListeningReceiveSocket s(
+      IpEndpointName( IpEndpointName::ANY_ADDRESS, 7000 ),
+      &listener );
+
+  std::cout << "osc messages...";
+  s.Run();
+}
+
