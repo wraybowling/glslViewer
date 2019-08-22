@@ -27,6 +27,8 @@ Sandbox::Sandbox():
     m_model_vbo(nullptr), m_model_area(0.0),
     // Camera.
     m_mvp(1.0), m_view2d(1.0), m_lat(180.0), m_lon(0.0),
+    // Light
+    m_light_vbo(nullptr), m_dynamicShadows(false),
     // CubeMap
     m_cubemap_vbo(nullptr), m_cubemap(nullptr), m_cubemap_skybox(nullptr), m_cubemap_draw(false),
     // Background
@@ -36,7 +38,7 @@ Sandbox::Sandbox():
     // PostProcessing
     m_postprocessing_enabled(false),
     // Geometry helpers
-    m_billboard_vbo(nullptr), m_light_vbo(nullptr), m_cross_vbo(nullptr), m_grid_vbo(nullptr), m_axis_vbo(nullptr), m_bbox_vbo(nullptr),
+    m_billboard_vbo(nullptr), m_cross_vbo(nullptr), m_grid_vbo(nullptr), m_axis_vbo(nullptr), m_bbox_vbo(nullptr),
     // Record
     m_record_start(0.0f), m_record_head(0.0f), m_record_end(0.0f), m_record_counter(0), m_record(false),
     // Scene
@@ -500,7 +502,7 @@ void Sandbox::_updateDependencies(WatchFileList &_files) {
 void Sandbox::_renderShadowMap() {
     if (geom_index != -1 &&
         uniforms_functions["u_ligthShadowMap"].present && 
-        m_light.bChange) {
+        (m_light.bChange || m_dynamicShadows) ) {
 
         m_textureIndex = 0;
 
@@ -522,6 +524,8 @@ void Sandbox::_renderShadowMap() {
 }
 
 void Sandbox::_renderBuffers() {
+    glDisable(GL_BLEND);
+
     m_textureIndex = 0;
     for (unsigned int i = 0; i < m_buffers.size(); i++) {
         m_textureIndex = 0;
@@ -545,6 +549,9 @@ void Sandbox::_renderBuffers() {
 
         m_buffers[i].unbind();
     }
+
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 }
 
 void Sandbox::_renderBackground() {
@@ -654,7 +661,10 @@ void Sandbox::draw() {
     
     // BUFFERS
     // -----------------------------------------------
-    _renderBuffers();
+    if (m_buffers.size() > 0) {
+        _renderBuffers();
+    }
+    
 
     // MAIN SCENE
     // ----------------------------------------------- < main scene start
@@ -853,7 +863,7 @@ void Sandbox::drawDebug2D() {
 void Sandbox::drawDone() {
     // RECORD
     if (m_record) {
-        onScreenshot(toString(m_record_counter,0,3,'0') + ".png");
+        onScreenshot(toString(m_record_counter, 0, 5, '0') + ".png");
         m_record_head += FRAME_DELTA;
         m_record_counter++;
 
