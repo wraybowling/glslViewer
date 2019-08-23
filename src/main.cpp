@@ -23,7 +23,7 @@
 //
 std::atomic<bool> bRun(true);
 
-//  List of FILES to watch and the variable to communicate that between process
+// List of FILES to watch and the variable to communicate that between process
 WatchFileList files;
 std::mutex filesMutex;
 int fileChanged;
@@ -43,23 +43,27 @@ SkyBox skybox;
 
 const unsigned int micro_wait = REST_SEC * 1000000;
 
+// Open Sound Control
+int OSC_PORT = 9000;
+
 // Here is where all the magic happens
 Sandbox sandbox;
 
 //================================================================= Threads
 void fileWatcherThread();
 void cinWatcherThread();
+void oscWatcherThread();
 
 //================================================================= Functions
 void onExit();
 void printUsage(char * executableName) {
     std::cerr << "// " << header << std::endl;
     std::cerr << "// "<< std::endl;
-    std::cerr << "// Swiss army knife of GLSL Shaders. Loads frag/vertex shaders, images and " << std::endl;
-    std::cerr << "// geometries. Will reload automatically on changes. Support for multi  "<< std::endl;
-    std::cerr << "// buffers, baground and postprocessing passes. Can render headlessly and "<< std::endl;
+    std::cerr << "// Swiss army knife of GLSL Shaders. Loads frag/vertex shaders, images, and" << std::endl;
+    std::cerr << "// geometries. Will reload automatically on changes. Support for multiple"<< std::endl;
+    std::cerr << "// buffers, background, and postprocessing passes. Can render headlessly and"<< std::endl;
     std::cerr << "// into a file. Use POSIX STANDARD CONSOLE IN/OUT to comunicate (uniforms,"<< std::endl;
-    std::cerr << "// camera position, scene description and  commands) to and with other "<< std::endl;
+    std::cerr << "// camera position, scene description, and commands) to and with other"<< std::endl;
     std::cerr << "// programs. Compatible with Linux and MacOS, runs from command line with"<< std::endl;
     std::cerr << "// out X11 enviroment on RaspberryPi devices. "<< std::endl;
     std::cerr << "// "<< std::endl;
@@ -72,8 +76,9 @@ void printUsage(char * executableName) {
     std::cerr << "// <shader>.frag [<shader>.vert] - load shaders" << std::endl;
     std::cerr << "// [<mesh>.(obj/.ply)] - load obj or ply file" << std::endl;
     std::cerr << "// [<texture>.(png/jpg/hdr)] - load and assign texture to uniform order" << std::endl;
-    std::cerr << "// [-<uniformName> <texture>.(png/jpg/hdr)] - add textures associated with different uniform sampler2D names" << std::endl;
-    std::cerr << "// [-c/-C/-sh <enviromental_map>.(png/jpg/hdr)] - load a environmental map (cubemap or sphericalmap)" << std::endl;
+    std::cerr << "// [-<uniformName> <texture>.(png/jpg/hdr)] - add textures associated with" << std::endl;
+    std::cerr << "//   different uniform sampler2D names" << std::endl;
+    std::cerr << "// [-c/-C/-sh <enviromental_map>.(png/jpg/hdr)] - load a cubemap or sphericalmap" << std::endl;
     std::cerr << "// [-vFlip] - all textures after will be flipped vertically" << std::endl;
     std::cerr << "// [-x <pixels>] - set the X position of the billboard on the screen" << std::endl;
     std::cerr << "// [-y <pixels>] - set the Y position of the billboard on the screen" << std::endl;
@@ -1002,6 +1007,10 @@ int main(int argc, char **argv){
                 std::cerr << "At the moment screenshots only support PNG formats" << std::endl;
             }
         }
+        else if ( argument == "--osc-port" ) {
+          i++;
+          OSC_PORT = toInt(std::string(argv[i]));
+        }
         else if ( argument == "-e" ) {
             i++;
             execute_cmd.push_back(std::string(argv[i]));
@@ -1226,7 +1235,7 @@ int main(int argc, char **argv){
     fileChanged = -1;
     std::thread fileWatcher( &fileWatcherThread );
     std::thread cinWatcher( &cinWatcherThread );
-    std::thread lt(OscThread);
+    std::thread oscWatcher( &oscWatcherThread );
 
     // Start working on the GL context
     filesMutex.lock();
@@ -1408,10 +1417,10 @@ void cinWatcherThread() {
 
 // Open Sound Control Thread
 //============================================================================
-void OscThread() {
+void oscWatcherThread() {
   MyPacketListener listener;
   UdpListeningReceiveSocket s(
-      IpEndpointName( IpEndpointName::ANY_ADDRESS, 7000 ),
+      IpEndpointName( IpEndpointName::ANY_ADDRESS, OSC_PORT ),
       &listener );
 
   std::cout << "osc messages...";
