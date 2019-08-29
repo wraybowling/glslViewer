@@ -1,0 +1,5 @@
+# Open Sound Control Notes
+
+## Uniform State Management
+Right now, there are a number of event listeners to catch things like mouse movement. Likewise, camera position, and various other command line flags can be controlled asynchronously via the POSIX pipe. What I'm thinking is that the previous state of all uniforms should be saved each loop cycle. This may be how it works already, but the idea is that changes to any input where two sources may point to the same uniform, we'll take the one that actually changed. Race conditions can be pseudo circumvented by the fact that OSC will be manually enabled when the --osc-port flag is used. By using OSC, and bothering to include any route matching the uniform functions, it will be overwritten in cases where both have a new value on the same cycle. I think this will be the best way to allow the user to mix and match controlling uniform functions from the command line or Python API and OSC at the same time.
+Luckily, it seems Patricio is already doing this via a haveChange() function.

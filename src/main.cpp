@@ -843,7 +843,7 @@ void declareCommands() {
 
                 // Check progres.
                 consoleMutex.lock();
-                pct = sandbox.getRecordedPorcentage();
+                pct = sandbox.getRecordedPercentage();
                 consoleMutex.unlock();
                 
                 std::cout << "// [ ";

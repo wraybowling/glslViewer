@@ -8,7 +8,6 @@
 
 struct UniformData {
     std::string getType();
-
     float   value[4];
     int     size;
     bool    bInt = false;
@@ -30,5 +29,4 @@ struct UniformFunction {
 };
 
 typedef std::map<std::string, UniformFunction> UniformFunctionsList;
-
 

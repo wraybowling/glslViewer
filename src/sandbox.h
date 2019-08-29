@@ -47,7 +47,7 @@ public:
     bool                    isReady();
 
     void                    record(float _start, float _end);
-    int                     getRecordedPorcentage();
+    int                     getRecordedPercentage();
 
     void                    addDefines(const std::string &_define);
     void                    delDefines(const std::string &_define);
