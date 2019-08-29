@@ -1,9 +1,33 @@
 #include "osc-server.h"
+#include "tools/uniform.h"
 
 void MyPacketListener::ProcessMessage(
-    const osc::ReceivedMessage& m,
-    const IpEndpointName& remoteEndpoint ){
+  const osc::ReceivedMessage& m,
+  const IpEndpointName& remoteEndpoint ){
 
+//  const UniformData oscUniform;
+
+  try {
+    osc::ReceivedMessage::const_iterator arg = m.ArgumentsBegin();
+    bool boolish = (arg)->IsBool();
+    bool intish = (arg)->IsInt32();
+    bool floatish = (arg)->IsFloat();
+
+    std::cout << m.AddressPattern() << "\n"
+//      << "a bundle?" << bundlish << "\n"
+      << "a bool? " << boolish << "\n"
+      << "an int? " << intish << "\n"
+      << "a float?" << floatish << "\n\n";
+  }catch( osc::Exception& e ){
+    // any parsing errors such as unexpected argument types, or 
+    // missing arguments get thrown as exceptions.
+    std::cout << "error while parsing message: "
+      << m.AddressPattern() << ": " << e.what() << "\n";
+  }
+
+
+
+ /* 
     try{
         // example of parsing single messages. osc::OsckPacketListener
         // handles the bundle traversal.
@@ -41,4 +65,5 @@ void MyPacketListener::ProcessMessage(
         std::cout << "error while parsing message: "
             << m.AddressPattern() << ": " << e.what() << "\n";
     }
+*/
 }
