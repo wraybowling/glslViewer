@@ -11,6 +11,7 @@
 
 // Search for one apearance
 bool find_id(const std::string& program, const char* id);
+bool check_for_floor(const std::string &_source);
 bool check_for_background(const std::string &_source);
 bool check_for_postprocessing(const std::string &_source);
 int count_buffers(const std::string &_source);
@@ -18,11 +19,12 @@ int count_buffers(const std::string &_source);
 // Get the line number
 std::string getLineNumber(const std::string& _source, unsigned _lineNumber);
 
-//  Return new string with all into lower letters 
-std::string toLower(const std::string& _string);
+std::string toUpper(const std::string& _string);    //  Return new string with all into upper letters 
+std::string toLower(const std::string& _string);    //  Return new string with all into lower letters
+std::string toUnderscore(const std::string& _string); //Replace spaces by underscorse
 
 //  Extract extrange characters from a string
-void purifyString(std::string& _string);
+std::string purifyString(const std::string& _string);
 
 // If match the first letters of stringA
 bool beginsWith(const std::string &_stringA, const std::string &_stringB);

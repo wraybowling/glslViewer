@@ -13,8 +13,6 @@
 #include "sandbox.h"
 #include "tools/fs.h"
 #include "tools/text.h"
-#include "tools/skybox.h"
-#include "tools/command.h"
 
 #include "osc-server.h"
 
@@ -23,7 +21,7 @@
 //
 std::atomic<bool> bRun(true);
 
-// List of FILES to watch and the variable to communicate that between process
+//  List of FILES to watch and the variable to communicate that between process
 WatchFileList files;
 std::mutex filesMutex;
 int fileChanged;
@@ -32,14 +30,12 @@ int fileChanged;
 CommandList commands;
 std::mutex  consoleMutex;
 std::string outputFile      = "";
-std::vector<std::string> execute_cmd;       // Execute commands
+std::vector<std::string> arguments_cmds;       // Execute commands
 bool        execute_exit    = false;
 
-std::string version = "1.5.6";
+std::string version = "1.6.0";
 std::string name = "GlslViewer";
 std::string header = name + " " + version + " by Patricio Gonzalez Vivo ( patriciogonzalezvivo.com )"; 
-
-SkyBox skybox;
 
 const unsigned int micro_wait = REST_SEC * 1000000;
 
@@ -88,7 +84,7 @@ void printUsage(char * executableName) {
     std::cerr << "// [-s/--sec <seconds>] - exit app after a specific amount of seconds" << std::endl;
     std::cerr << "// [-o <file>.png] - save the viewport to an image file before" << std::endl;
     std::cerr << "// [--headless] - headless rendering. Very useful for making images or benchmarking." << std::endl;
-    std::cerr << "// [--cursor] - show cursor" << std::endl;
+    std::cerr << "// [--nocursor] - hide cursor" << std::endl;
     std::cerr << "// [-I<include_folder>] - add an include folder to default for #include files" << std::endl;
     std::cerr << "// [-D<define>] - add system #defines directly from the console argument" << std::endl;
     std::cerr << "// [-e/-E <command>] - execute command when start. Multiple -e flags can be chained" << std::endl;
@@ -119,7 +115,7 @@ void declareCommands() {
         }
         return false;
     },
-    "help[,<command>]       print help for one or all command"));
+    "help[,<command>]       print help for one or all command", false));
 
     commands.push_back(Command("version", [&](const std::string& _line){ 
         if (_line == "version") {
@@ -128,43 +124,7 @@ void declareCommands() {
         }
         return false;
     },
-    "version                return glslViewer version."));
-
-    commands.push_back(Command("debug", [&](const std::string& _line){
-        if (_line == "debug") {
-            std::string rta = sandbox.debug ? "on" : "off";
-            std::cout <<  rta << std::endl; 
-            return true;
-        }
-        else {
-            std::vector<std::string> values = split(_line,',');
-            if (values.size() == 2) {
-                consoleMutex.lock();
-                sandbox.debug = (values[1] == "on");
-                consoleMutex.unlock();
-            }
-        }
-        return false;
-    },
-    "debug[,on|off]       show/hide debug elements"));
-
-    commands.push_back(Command("cursor", [&](const std::string& _line){
-        if (_line == "cursor") {
-            std::string rta = sandbox.cursor ? "on" : "off";
-            std::cout <<  rta << std::endl; 
-            return true;
-        }
-        else {
-            std::vector<std::string> values = split(_line,',');
-            if (values.size() == 2) {
-                consoleMutex.lock();
-                sandbox.cursor = (values[1] == "on");
-                consoleMutex.unlock();
-            }
-        }
-        return false;
-    },
-    "cursor[,on|off]       show/hide cursor"));
+    "version                return glslViewer version.", false));
 
     commands.push_back(Command("window_height", [&](const std::string& _line){ 
         if (_line == "window_height") {
@@ -173,7 +133,7 @@ void declareCommands() {
         }
         return false;
     },
-    "window_height          return the height of the windows."));
+    "window_height          return the height of the windows.", false));
 
     commands.push_back(Command("pixel_density", [&](const std::string& _line){ 
         if (_line == "pixel_density") {
@@ -182,7 +142,7 @@ void declareCommands() {
         }
         return false;
     },
-    "pixel_density          return the pixel density."));
+    "pixel_density          return the pixel density.", false));
 
     commands.push_back(Command("screen_size", [&](const std::string& _line){ 
         if (_line == "screen_size") {
@@ -192,7 +152,7 @@ void declareCommands() {
         }
         return false;
     },
-    "screen_size            return the screen size."));
+    "screen_size            return the screen size.", false));
 
     commands.push_back(Command("viewport", [&](const std::string& _line){ 
         if (_line == "viewport") {
@@ -202,7 +162,7 @@ void declareCommands() {
         }
         return false;
     },
-    "viewport               return the viewport size."));
+    "viewport               return the viewport size.", false));
 
     commands.push_back(Command("mouse", [&](const std::string& _line){ 
         if (_line == "mouse") {
@@ -212,7 +172,7 @@ void declareCommands() {
         }
         return false;
     },
-    "mouse                  return the mouse position."));
+    "mouse                  return the mouse position.", false));
     
     commands.push_back(Command("fps", [&](const std::string& _line){ 
         if (_line == "fps") {
@@ -222,7 +182,7 @@ void declareCommands() {
         }
         return false;
     },
-    "fps                    return u_fps, the number of frames per second."));
+    "fps                    return u_fps, the number of frames per second.", false));
 
     commands.push_back(Command("delta", [&](const std::string& _line){ 
         if (_line == "delta") {
@@ -232,7 +192,7 @@ void declareCommands() {
         }
         return false;
     },
-    "delta                  return u_delta, the secs between frames."));
+    "delta                  return u_delta, the secs between frames.", false));
 
     commands.push_back(Command("time", [&](const std::string& _line){ 
         if (_line == "time") {
@@ -242,7 +202,7 @@ void declareCommands() {
         }
         return false;
     },
-    "time                   return u_time, the elapsed time."));
+    "time                   return u_time, the elapsed time.", false));
 
     commands.push_back(Command("date", [&](const std::string& _line){ 
         if (_line == "date") {
@@ -253,44 +213,18 @@ void declareCommands() {
         }
         return false;
     },
-    "date                   return u_date as YYYY, M, D and Secs."));
+    "date                   return u_date as YYYY, M, D and Secs.", false));
 
-    commands.push_back(Command("culling", [&](const std::string& _line){ 
-        std::vector<std::string> values = split(_line,',');
-        if (values.size() == 1) {
-            if (sandbox.getCulling() == NONE) {
-                std::cout << "none" << std::endl;
-            }
-            else if (sandbox.getCulling() == FRONT) {
-                std::cout << "front" << std::endl;
-            }
-            else if (sandbox.getCulling() == BACK) {
-                std::cout << "back" << std::endl;
-            }
-            else if (sandbox.getCulling() == BOTH) {
-                std::cout << "both" << std::endl;
+    commands.push_back(Command("files", [&](const std::string& _line){ 
+        if (_line == "files") {
+            for (unsigned int i = 0; i < files.size(); i++) { 
+                std::cout << std::setw(2) << i << "," << std::setw(12) << toString(files[i].type) << "," << files[i].path << std::endl;
             }
             return true;
         }
-        else if (values.size() == 2) {
-            if (values[1] == "none") {
-                sandbox.setCulling(NONE);
-            }
-            else if (values[1] == "front") {
-                sandbox.setCulling(FRONT);
-            }
-            else if (values[1] == "back") {
-                sandbox.setCulling(BACK);
-            }
-            else if (values[1] == "both") {
-                sandbox.setCulling(BOTH);
-            }
-            return true;
-        }
-
         return false;
     },
-    "culling[,<none|front|back|both>]   get or set the culling modes"));
+    "files                  return a list of files.", false));
 
     commands.push_back(Command("frag", [&](const std::string& _line){ 
         if (_line == "frag") {
@@ -329,7 +263,7 @@ void declareCommands() {
         }
         return false;
     },
-    "frag[,<filename>]      returns or save the fragment shader source code."));
+    "frag[,<filename>]      returns or save the fragment shader source code.", false));
 
     commands.push_back(Command("vert", [&](const std::string& _line){ 
         if (_line == "vert") {
@@ -368,7 +302,7 @@ void declareCommands() {
         }
         return false;
     },
-    "vert[,<filename>]      returns or save the vertex shader source code."));
+    "vert[,<filename>]      returns or save the vertex shader source code.", false));
 
     commands.push_back( Command("dependencies", [&](const std::string& _line){ 
         if (_line == "dependencies") {
@@ -389,406 +323,7 @@ void declareCommands() {
         }
         return false;
     },
-    "dependencies[,vert|frag]   returns all the dependencies of the vertex o fragment shader or both."));
-
-    commands.push_back(Command("files", [&](const std::string& _line){ 
-        if (_line == "files") {
-            for (unsigned int i = 0; i < files.size(); i++) { 
-                std::cout << std::setw(2) << i << "," << std::setw(12) << toString(files[i].type) << "," << files[i].path << std::endl;
-            }
-            return true;
-        }
-        return false;
-    },
-    "files                  return a list of files."));
-
-    commands.push_back(Command("buffers", [&](const std::string& _line){ 
-        if (_line == "buffers") {
-            for (int i = 0; i < sandbox.getTotalBuffers(); i++) {
-                std::cout << "u_buffer" << i << std::endl;
-            }
-            return true;
-        }
-        return false;
-    },
-    "buffers                return a list of buffers as their uniform name."));
-
-    commands.push_back(Command("defines", [&](const std::string& _line){ 
-        if (_line == "defines") {
-            for (unsigned int i = 0; i < sandbox.defines.size(); i++) {
-                std::cout << sandbox.defines[i] << std::endl;
-            }
-            return true;
-        }
-        return false;
-    },
-    "defines                return a list of active defines"));
-
-    commands.push_back( Command("define,", [&](const std::string& _line){ 
-        std::vector<std::string> values = split(_line,',');
-        if (values.size() == 2) {
-            consoleMutex.lock();
-            sandbox.addDefines( values[1] ); 
-            consoleMutex.unlock();
-            filesMutex.lock();
-            fileChanged = sandbox.frag_index;
-            filesMutex.unlock();
-            return true;
-        }
-        return false;
-    },
-    "define,<KEYWORD>       add a define to the shader"));
-
-    commands.push_back( Command("undefine,", [&](const std::string& _line){ 
-        std::vector<std::string> values = split(_line,',');
-        if (values.size() == 2) {
-            consoleMutex.lock();
-            sandbox.delDefines( values[1] ); 
-            consoleMutex.unlock();
-            filesMutex.lock();
-            fileChanged = sandbox.frag_index;
-            filesMutex.unlock();
-            return true;
-        }
-        return false;
-    },
-    "undefine,<KEYWORD>     remove a define on the shader"));
-
-    commands.push_back(Command("uniforms", [&](const std::string& _line){ 
-        if (_line == "uniforms,all") {
-            // Print all Native Uniforms (they carry functions)
-            for (UniformFunctionsList::iterator it= sandbox.uniforms_functions.begin(); it != sandbox.uniforms_functions.end(); ++it) {                
-                std::cout << it->second.type << ',' << it->first;
-                if (it->second.print) {
-                    std::cout << "," << it->second.print();
-                }
-                std::cout << std::endl;
-            }
-        }
-        else {
-            // Print Native Uniforms (they carry functions) that are present on the shader
-            for (UniformFunctionsList::iterator it= sandbox.uniforms_functions.begin(); it != sandbox.uniforms_functions.end(); ++it) {                
-                if (it->second.present) {
-                    std::cout << it->second.type << ',' << it->first;
-                    if (it->second.print) {
-                        std::cout << "," << it->second.print();
-                    }
-                    std::cout << std::endl;
-                }
-            }
-        }
-        
-        // Print user defined uniform data
-        for (UniformDataList::iterator it= sandbox.uniforms_data.begin(); it != sandbox.uniforms_data.end(); ++it) {
-            std::cout << it->second.getType() << "," << it->first;
-            for (int i = 0; i < it->second.size; i++) {
-                std::cout << ',' << it->second.value[i];
-            }
-            std::cout << std::endl;
-        }
-
-        for (int i = 0; i < sandbox.getTotalBuffers(); i++) {
-            std::cout << "sampler2D," << "u_buffer" << i << std::endl;
-        }
-
-        for (TextureList::iterator it = sandbox.textures.begin(); it != sandbox.textures.end(); ++it) {
-            std::cout << "sampler2D," << it->first << ',' << it->second->getFilePath() << std::endl;
-        }
-
-        // TODO
-        //      - Cubemap
-
-        return true;
-    },
-    "uniforms[,all|active]  return a list of all uniforms and their values or just the one active (default)."));
-
-    commands.push_back(Command("textures", [&](const std::string& _line){ 
-        if (_line == "textures") {
-            for (TextureList::iterator it = sandbox.textures.begin(); it != sandbox.textures.end(); ++it) {
-                std::cout << it->first << ',' << it->second->getFilePath() << std::endl;
-            }
-            return true;
-        }
-        return false;
-    },
-    "textures               return a list of textures as their uniform name and path."));
-
-    commands.push_back(Command("window_width", [&](const std::string& _line){ 
-        if (_line == "window_width") {
-            std::cout << getWindowWidth() << std::endl;
-            return true;
-        }
-        return false;
-    },
-    "window_width           return the width of the windows."));
-
-    commands.push_back(Command("camera_distance", [&](const std::string& _line){ 
-        std::vector<std::string> values = split(_line,',');
-        if (values.size() == 2) {
-            consoleMutex.lock();
-            sandbox.getCamera().setDistance(toFloat(values[1]));
-            sandbox.flagChange();
-            consoleMutex.unlock();
-            return true;
-        }
-        else {
-            std::cout << sandbox.getCamera().getDistance() << std::endl;
-            return true;
-        }
-        return false;
-    },
-    "camera_distance[,<dist>]       get or set the camera distance to the target."));
-
-    commands.push_back(Command("camera_fov", [&](const std::string& _line){ 
-        std::vector<std::string> values = split(_line,',');
-        if (values.size() == 2) {
-            consoleMutex.lock();
-            sandbox.getCamera().setFOV(toFloat(values[1]));
-            sandbox.flagChange();
-            consoleMutex.unlock();
-            return true;
-        }
-        else {
-            std::cout << sandbox.getCamera().getFOV() << std::endl;
-            return true;
-        }
-        return false;
-    },
-    "camera_fov[,<field_of_view>]   get or set the camera field of view."));
-
-    commands.push_back(Command("camera_position", [&](const std::string& _line){ 
-        std::vector<std::string> values = split(_line,',');
-        if (values.size() == 4) {
-            consoleMutex.lock();
-            sandbox.getCamera().setPosition(glm::vec3(toFloat(values[1]),toFloat(values[2]),toFloat(values[3])));
-            sandbox.getCamera().lookAt(sandbox.getCamera().getTarget());
-            sandbox.flagChange();
-            consoleMutex.unlock();
-            return true;
-        }
-        else {
-            glm::vec3 pos = sandbox.getCamera().getPosition();
-            std::cout << pos.x << ',' << pos.y << ',' << pos.z << std::endl;
-            return true;
-        }
-        return false;
-    },
-    "camera_position[,<x>,<y>,<z>]  get or set the camera position."));
-
-    commands.push_back(Command("camera_exposure", [&](const std::string& _line){ 
-        std::vector<std::string> values = split(_line,',');
-        if (values.size() == 4) {
-            consoleMutex.lock();
-            sandbox.getCamera().setExposure(toFloat(values[1]),toFloat(values[2]),toFloat(values[3]));
-            sandbox.flagChange();
-            consoleMutex.unlock();
-            return true;
-        }
-        else {
-            std::cout << sandbox.getCamera().getExposure() << std::endl;
-            return true;
-        }
-        return false;
-    },
-    "camera_exposure[,<aperture>,<shutterSpeed>,<sensitivity>]  get or set the camera exposure. Defaults: 16, 1/125s, 100 ISO"));
-
-    commands.push_back(Command("light_position", [&](const std::string& _line){ 
-        std::vector<std::string> values = split(_line,',');
-        if (values.size() == 4) {
-            consoleMutex.lock();
-            sandbox.getLight().setPosition(glm::vec3(toFloat(values[1]),toFloat(values[2]),toFloat(values[3])));
-            sandbox.getLight().bChange = true;
-            sandbox.flagChange();
-            consoleMutex.unlock();
-            return true;
-        }
-        else {
-            glm::vec3 pos = sandbox.getLight().getPosition();
-            std::cout << pos.x << ',' << pos.y << ',' << pos.z << std::endl;
-            return true;
-        }
-        return false;
-    },
-    "light_position[,<x>,<y>,<z>]  get or set the light position."));
-
-    commands.push_back(Command("light_color", [&](const std::string& _line){ 
-         std::vector<std::string> values = split(_line,',');
-        if (values.size() == 4) {
-            consoleMutex.lock();
-            sandbox.getLight().color = glm::vec3(toFloat(values[1]),toFloat(values[2]),toFloat(values[3]));
-            sandbox.flagChange();
-            consoleMutex.unlock();
-            return true;
-        }
-        else {
-            glm::vec3 color = sandbox.getLight().color;
-            std::cout << color.x << ',' << color.y << ',' << color.z << std::endl;
-            return true;
-        }
-        return false;
-    },
-    "light_color[,<r>,<g>,<b>]      get or set the light color."));
-    
-
-    commands.push_back(Command("dynamic_shadows", [&](const std::string& _line){ 
-        if (_line == "dynamic_shadows") {
-            std::string rta = sandbox.getDynamicShadows() ? "on" : "off";
-            std::cout <<  rta << std::endl; 
-            return true;
-        }
-        else {
-            std::vector<std::string> values = split(_line,',');
-            if (values.size() == 2) {
-                consoleMutex.lock();
-                sandbox.setDynamicShadows( (values[1] == "on") );
-                consoleMutex.unlock();
-            }
-        }
-        return false;
-    },
-    "dynamic_shadows[on|off]        get or set dynamic shadows"));
-
-    commands.push_back(Command("skybox_ground", [&](const std::string& _line){ 
-        std::vector<std::string> values = split(_line,',');
-        if (values.size() == 4) {
-            consoleMutex.lock();
-
-            skybox.groundAlbedo = glm::vec3(toFloat(values[1]),toFloat(values[2]),toFloat(values[3]));
-            sandbox.setCubeMap(&skybox);
-
-            sandbox.flagChange();
-            consoleMutex.unlock();
-            return true;
-        }
-        else {
-            std::cout << skybox.groundAlbedo.x << ',' << skybox.groundAlbedo.y << ',' << skybox.groundAlbedo.z << std::endl;
-            return true;
-        }
-        return false;
-    },
-    "skybox_ground[,<r>,<g>,<b>]      get or set the ground color of the skybox."));
-
-    commands.push_back(Command("skybox_elevation", [&](const std::string& _line){ 
-        std::vector<std::string> values = split(_line,',');
-        if (values.size() == 2) {
-            consoleMutex.lock();
-
-            skybox.elevation = toFloat(values[1]);
-            sandbox.setCubeMap(&skybox);
-
-            sandbox.flagChange();
-            consoleMutex.unlock();
-            return true;
-        }
-        else {
-            std::cout << skybox.elevation << std::endl;
-            return true;
-        }
-        return false;
-    },
-    "skybox_elevation[,<sun_elevation>]  get or set the sun elevation (in rads) of the skybox."));
-
-    commands.push_back(Command("skybox_azimuth", [&](const std::string& _line){ 
-        std::vector<std::string> values = split(_line,',');
-        if (values.size() == 2) {
-            consoleMutex.lock();
-
-            skybox.azimuth = toFloat(values[1]);
-            sandbox.setCubeMap(&skybox);
-
-            sandbox.flagChange();
-            consoleMutex.unlock();
-            return true;
-        }
-        else {
-            std::cout << skybox.azimuth << std::endl;
-            return true;
-        }
-        return false;
-    },
-    "skybox_azimuth[,<sun_azimuth>]  get or set the sun azimuth (in rads) of the skybox."));
-
-    commands.push_back(Command("skybox_turbidity", [&](const std::string& _line){ 
-        std::vector<std::string> values = split(_line,',');
-        if (values.size() == 2) {
-            consoleMutex.lock();
-
-            skybox.turbidity = toFloat(values[1]);
-            sandbox.setCubeMap(&skybox);
-
-            sandbox.flagChange();
-            consoleMutex.unlock();
-            return true;
-        }
-        else {
-            std::cout << skybox.turbidity << std::endl;
-            return true;
-        }
-        return false;
-    },
-    "skybox_turbidity[,<sky_turbidty>]  get or set the sky turbidity of the skybox."));
-
-    commands.push_back(Command("skybox", [&](const std::string& _line){
-        if (_line == "skybox") {
-            std::string rta = sandbox.getCubeMapVisible() ? "on" : "off";
-            std::cout << rta << std::endl; 
-            return true;
-        }
-        else {
-            std::vector<std::string> values = split(_line,',');
-            if (values.size() == 2) {
-                consoleMutex.lock();
-
-                sandbox.setCubeMap(&skybox);
-                sandbox.setCubeMapVisible( values[1] == "on" );
-
-                consoleMutex.unlock();
-            }
-        }
-        return false;
-    },
-    "skybox[,on|off]       show/hide skybox"));
-
-
-    commands.push_back(Command("cubemap", [&](const std::string& _line){
-        if (_line == "cubemap") {
-            std::string rta = sandbox.getCubeMapVisible() ? "on" : "off";
-            std::cout << rta << std::endl; 
-            return true;
-        }
-        else {
-            std::vector<std::string> values = split(_line,',');
-            if (values.size() == 2) {
-                consoleMutex.lock();
-
-                sandbox.setCubeMapVisible( values[1] == "on" );
-
-                consoleMutex.unlock();
-            }
-        }
-        return false;
-    },
-    "cubemap[,on|off]       show/hide cubemap"));
-    
-
-    commands.push_back(Command("model_position", [&](const std::string& _line){ 
-        std::vector<std::string> values = split(_line,',');
-        if (values.size() == 4) {
-            consoleMutex.lock();
-            sandbox.getModel().setPosition(glm::vec3(toFloat(values[1]),toFloat(values[2]),toFloat(values[3])));
-            sandbox.getLight().bChange = true;
-            sandbox.flagChange();
-            consoleMutex.unlock();
-            return true;
-        }
-        else {
-            glm::vec3 pos = sandbox.getModel().getPosition();
-            std::cout << pos.x << ',' << pos.y << ',' << pos.z << std::endl;
-            return true;
-        }
-        return false;
-    },
-    "model_position[,<x>,<y>,<z>]  get or set the model position."));
+    "dependencies[,vert|frag]   returns all the dependencies of the vertex o fragment shader or both.", false));
 
     commands.push_back(Command("wait", [&](const std::string& _line){ 
         std::vector<std::string> values = split(_line,',');
@@ -799,11 +334,27 @@ void declareCommands() {
     },
     "wait,<seconds>                 wait for X <seconds> before excecuting another command."));
 
+    commands.push_back(Command("cursor", [&](const std::string& _line){
+        if (_line == "cursor") {
+            std::string rta = sandbox.cursor ? "on" : "off";
+            std::cout <<  rta << std::endl; 
+            return true;
+        }
+        else {
+            std::vector<std::string> values = split(_line,',');
+            if (values.size() == 2) {
+                consoleMutex.lock();
+                sandbox.cursor = (values[1] == "on");
+                consoleMutex.unlock();
+            }
+        }
+        return false;
+    },
+    "cursor[,on|off]       show/hide cursor", false));
+
     commands.push_back(Command("screenshot", [&](const std::string& _line){ 
         if (_line == "screenshot" && outputFile != "") {
-            consoleMutex.lock();
             sandbox.screenshotFile = outputFile;
-            consoleMutex.unlock();
             return true;
         }
         else {
@@ -817,7 +368,7 @@ void declareCommands() {
         }
         return false;
     },
-    "screenshot[,<filename>]        saves a screenshot to a filename."));
+    "screenshot[,<filename>]        saves a screenshot to a filename.", false));
 
      commands.push_back(Command("sequence", [&](const std::string& _line){ 
         std::vector<std::string> values = split(_line,',');
@@ -862,7 +413,16 @@ void declareCommands() {
         }
         return false;
     },
-    "sequence,<A_sec>,<B_sec>   saves a sequence of images from A to B second."));
+    "sequence,<A_sec>,<B_sec>   saves a sequence of images from A to B second.", false));
+
+    commands.push_back(Command("window_width", [&](const std::string& _line){ 
+        if (_line == "window_width") {
+            std::cout << getWindowWidth() << std::endl;
+            return true;
+        }
+        return false;
+    },
+    "window_width           return the width of the windows.", false));
 
     commands.push_back(Command("q", [&](const std::string& _line){ 
         if (_line == "q") {
@@ -871,7 +431,7 @@ void declareCommands() {
         }
         return false;
     },
-    "q                          close glslViewer"));
+    "q                          close glslViewer", false));
 
     commands.push_back(Command("quit", [&](const std::string& _line){ 
         if (_line == "quit") {
@@ -880,7 +440,7 @@ void declareCommands() {
         }
         return false;
     },
-    "quit                       close glslViewer"));
+    "quit                       close glslViewer", false));
 
     commands.push_back(Command("exit", [&](const std::string& _line){ 
         if (_line == "exit") {
@@ -889,7 +449,7 @@ void declareCommands() {
         }
         return false;
     },
-    "exit                       close glslViewer"));
+    "exit                       close glslViewer", false));
 }
 
 // Main program
@@ -984,11 +544,8 @@ int main(int argc, char **argv){
         else if (   argument == "--verbose" ) {
             sandbox.verbose = true;
         }
-        else if (   argument == "--debug" ) {
-            sandbox.debug = true;
-        }
-        else if ( argument == "--cursor" ) {
-            sandbox.cursor = true;
+        else if ( argument == "--nocursor" ) {
+            sandbox.cursor = false;
         }
         else if ( argument == "-s" || argument == "--sec" ) {
             i++;
@@ -1013,11 +570,11 @@ int main(int argc, char **argv){
         }
         else if ( argument == "-e" ) {
             i++;
-            execute_cmd.push_back(std::string(argv[i]));
+            arguments_cmds.push_back(std::string(argv[i]));
         }
         else if ( argument == "-E" ) {
             i++;
-            execute_cmd.push_back(std::string(argv[i]));
+            arguments_cmds.push_back(std::string(argv[i]));
             execute_exit = true;
         }
         else if (argument == "-F" ) {
@@ -1062,13 +619,6 @@ int main(int argc, char **argv){
                 file.path = argument;
                 file.lastChange = st.st_mtime;
                 files.push_back(file);
-
-                sandbox.addDefines("SHADOW_MAP u_ligthShadowMap");
-#ifdef PLATFORM_RPI
-                sandbox.addDefines("SHADOW_MAP_SIZE 512.0");
-#else
-                sandbox.addDefines("SHADOW_MAP_SIZE 1024.0");
-#endif
                 sandbox.geom_index = files.size()-1;
             }
         }
@@ -1079,115 +629,27 @@ int main(int argc, char **argv){
                     haveExt(argument,"png") || haveExt(argument,"PNG") ||
                     haveExt(argument,"jpg") || haveExt(argument,"JPG") ||
                     haveExt(argument,"jpeg") || haveExt(argument,"JPEG")) {
-            if ( stat(argument.c_str(), &st) != 0 ) {
-                std::cerr << "Error watching file " << argument << std::endl;
-            }
-            else {
-                Texture* tex = new Texture();
 
-                if ( tex->load(argument, vFlip) ) {
-                    std::string name = "u_tex"+toString(textureCounter);
-                    sandbox.textures[name] = tex;
-
-                    WatchFile file;
-                    file.type = IMAGE;
-                    file.path = argument;
-                    file.lastChange = st.st_mtime;
-                    file.vFlip = vFlip;
-                    files.push_back(file);
-
-                    std::cout << "// " << argument << " loaded as: " << std::endl;
-                    std::cout << "//    uniform sampler2D " << name  << ";"<< std::endl;
-                    std::cout << "//    uniform vec2 " << name  << "Resolution;"<< std::endl;
+            if ( sandbox.uniforms.addTexture("u_tex"+toString(textureCounter), argument, files, vFlip) )
                     textureCounter++;
                 }
-            }
-        }
-        else if ( argument == "-c" ) {
+        else if ( argument == "-c" || argument == "-sh" ) {
             i++;
             argument = std::string(argv[i]);
-            if ( stat(argument.c_str(), &st) != 0 ) {
-                std::cerr << "Error watching cubefile: " << argument << std::endl;
+            sandbox.getScene().setCubeMap(argument, files, false);
             }
-            else {
-                TextureCube* tex = new TextureCube();
-                if ( tex->load(argument, vFlip) ) {
-                    sandbox.setCubeMap(tex);
-                    sandbox.setCubeMapVisible(false);
-
-                    WatchFile file;
-                    file.type = CUBEMAP;
-                    file.path = argument;
-                    file.lastChange = st.st_mtime;
-                    file.vFlip = vFlip;
-                    files.push_back(file);
-
-                    sandbox.addDefines("CUBE_MAP u_cubeMap");
-                    sandbox.addDefines("SH_ARRAY u_SH");
-
-                    std::cout << "// " << argument << " loaded as: " << std::endl;
-                    std::cout << "//    uniform samplerCube u_cubeMap;"<< std::endl;
-                    std::cout << "//    uniform vec3        u_SH[9];"<< std::endl;
-                }
-            }
-        }
         else if ( argument == "-C" ) {
             i++;
             argument = std::string(argv[i]);
-            if ( stat(argument.c_str(), &st) != 0 ) {
-                std::cerr << "Error watching cubefile: " << argument << std::endl;
-            }
-            else {
-                TextureCube* tex = new TextureCube();
-                if ( tex->load(argument, vFlip) ) {
-                    sandbox.setCubeMap(tex);
-                    sandbox.setCubeMapVisible(true);
-
-                    WatchFile file;
-                    file.type = CUBEMAP;
-                    file.path = argument;
-                    file.lastChange = st.st_mtime;
-                    file.vFlip = vFlip;
-                    files.push_back(file);
-
-                    sandbox.addDefines("CUBE_MAP u_cubeMap");
-                    sandbox.addDefines("SH_ARRAY u_SH");
-
-                    std::cout << "// " << argument << " loaded as: " << std::endl;
-                    std::cout << "//    uniform samplerCube u_cubeMap;"<< std::endl;
-                    std::cout << "//    uniform vec3        u_SH[9];"<< std::endl;
-                }
-            }
-        }
-        else if ( argument == "-sh" ) {
-            i++;
-            argument = std::string(argv[i]);
-            if ( stat(argument.c_str(), &st) != 0 ) {
-                std::cerr << "Error watching cubefile: " << argument << std::endl;
-            }
-            else {
-                TextureCube* tex = new TextureCube();
-                if ( tex->load(argument, vFlip) ) {
-                    sandbox.setCubeMap(tex);
-                    sandbox.setCubeMapVisible(false);
-
-                    WatchFile file;
-                    file.type = CUBEMAP;
-                    file.path = argument;
-                    file.lastChange = st.st_mtime;
-                    file.vFlip = vFlip;
-                    files.push_back(file);
-
-                    sandbox.addDefines("SH_ARRAY u_SH");
-
-                    std::cout << "// " << argument << " loaded as: " << std::endl;
-                    std::cout << "//    uniform vec3        u_SH[9];"<< std::endl;
-                }
-            }
+            sandbox.getScene().setCubeMap(argument, files, true);
         }
         else if ( argument.find("-D") == 0 ) {
-            std::string define = argument.substr(2);
-            sandbox.defines.push_back(define);
+            // Defines are added/remove once existing shaders
+            // On multiple meshes files like OBJ, there can be multiple 
+            // variations of meshes, that only get created after loading the sece
+            // to work arround that defines are add post-loading as argument commands
+            std::string define = std::string("define,") + argument.substr(2);
+            arguments_cmds.push_back(define);
         }
         else if ( argument.find("-I") == 0 ) {
             std::string include = argument.substr(2);
@@ -1201,28 +663,9 @@ int main(int argc, char **argv){
             std::string parameterPair = argument.substr( argument.find_last_of('-') + 1 );
             i++;
             argument = std::string(argv[i]);
-            if ( stat(argument.c_str(), &st) != 0 ) {
-                std::cerr << "Error watching file " << argument << std::endl;
+            sandbox.uniforms.addTexture(parameterPair, argument, files, vFlip);
             }
-            else {
-                Texture* tex = new Texture();
-                if (tex->load(argument, vFlip)) {
-                    sandbox.textures[parameterPair] = tex;
-
-                    WatchFile file;
-                    file.type = IMAGE;
-                    file.path = argument;
-                    file.lastChange = st.st_mtime;
-                    file.vFlip = vFlip;
-                    files.push_back(file);
-
-                    std::cout << "// " << argument << " loaded as: " << std::endl;
-                    std::cout << "//     uniform sampler2D " << parameterPair  << ";"<< std::endl;
-                    std::cout << "//     uniform vec2 " << parameterPair  << "Resolution;"<< std::endl;
-                }
             }
-        }
-    }
 
     // If no shader
     if ( sandbox.frag_index == -1 && sandbox.vert_index == -1 && sandbox.geom_index == -1 ) {
@@ -1239,13 +682,23 @@ int main(int argc, char **argv){
 
     // Start working on the GL context
     filesMutex.lock();
-    sandbox.setup(files);
+    sandbox.setup(files, commands);
     filesMutex.unlock();
 
+    if (sandbox.verbose)
+        std::cout << "Starting Render Loop" << std::endl; 
+    
     // Render Loop
+    bool timeOut = false;
     while ( isGL() && bRun.load() ) {
         // Update
         updateGL();
+
+        // Calculate if timeout required
+        if ( timeLimit >= 0.0 && getTime() >= timeLimit ) {
+            timeOut = true;
+            sandbox.screenshotFile = outputFile;
+        }
 
         glClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT );
 
@@ -1258,25 +711,26 @@ int main(int argc, char **argv){
         }
 
         // If nothing in the scene change skip the frame and try to keep it at 60fps
-        if (!fullFps && !sandbox.haveChange()) {
+        if (!timeOut && !fullFps && !sandbox.haveChange()) {
             usleep( micro_wait );
             continue;
         }
 
         // Draw Scene
-        sandbox.draw();
+        sandbox.render();
 
         // Draw Cursor and 2D Debug elements
-        sandbox.drawDebug2D();
+        sandbox.renderUI();
 
         // Finish drawing
-        sandbox.drawDone();
+        sandbox.renderDone();
 
+        if ( timeOut ) {
+            bRun.store(false);
+        }
+        else {
         // Swap the buffers
         renderGL();
-
-        if ( timeLimit >= 0.0 && getTime() >= timeLimit ) {
-            bRun.store(false);
         }
 
     }
@@ -1328,21 +782,18 @@ void onViewportResize(int _newWidth, int _newHeight) {
 }
 
 void onExit() {
-    // Take a screenshot if it need
-    sandbox.onScreenshot(outputFile);
-
     // clear screen
     glClear( GL_COLOR_BUFFER_BIT );
 
+    // Delete the resources of Sandbox
+    sandbox.clear();
+
     // close openGL instance
     closeGL();
-
-    // Delete the resources of Sandbox
-    sandbox.clean();
 }
 
 
-// Watching Thread
+//  Watching Thread
 //============================================================================
 void fileWatcherThread() {
     struct stat st;
@@ -1363,54 +814,63 @@ void fileWatcherThread() {
     }
 }
 
-// Command line Thread
+void runCmd(const std::string &_cmd, std::mutex &_mutex) {
+    bool resolve = false;
+
+    // Check if _cmd is present in the list of commands
+            for (unsigned int i = 0; i < commands.size(); i++) {
+        if (beginsWith(_cmd, commands[i].begins_with)) {
+
+            // Do require mutex the thread?
+            if (commands[i].mutex)
+                _mutex.lock();
+
+            // Execute de command
+            resolve = commands[i].exec(_cmd);
+
+            if (commands[i].mutex)
+                _mutex.unlock();
+
+            // If got resolved stop searching
+            if (resolve) {
+                        break;
+                    }
+                }
+            }
+
+    // If nothing match maybe the user is trying to define the content of a uniform
+    if (!resolve) {
+        _mutex.lock();
+        sandbox.uniforms.parseLine(_cmd);
+        _mutex.unlock();
+        }
+    }
+
+//  Command line Thread
 //============================================================================
 void cinWatcherThread() {
     while (!sandbox.isReady()) {
         usleep( micro_wait );
     }
 
-    if (execute_cmd.size() > 0) {
-        bool resolve = false;
-        for (unsigned int j = 0; j < execute_cmd.size(); j++) {
-            for (unsigned int i = 0; i < commands.size(); i++) {
-                if (beginsWith(execute_cmd[j], commands[i].begins_with)) {
-                    if (commands[i].exec(execute_cmd[j])) {
-                        resolve = true;
-                        break;
-                    }
+    // Argument commands to execute comming from -e or -E
+    if (arguments_cmds.size() > 0) {
+        for (unsigned int i = 0; i < arguments_cmds.size(); i++) {
+            runCmd(arguments_cmds[i], consoleMutex);
                 }
-            }
-        }
-        execute_cmd.clear();
+        arguments_cmds.clear();
 
-        if (execute_exit && resolve) {
+        // If it's using -E exit after executing all commands
+        if (execute_exit) {
             bRun.store(false);
-        }
-    }
-
-    std::string line;
-    std::cout << "// > ";
-    while (std::getline(std::cin, line)) {
-
-        bool resolve = false;
-        for (unsigned int i = 0; i < commands.size(); i++) {
-            if (beginsWith(line, commands[i].begins_with)) {
-                if (commands[i].exec(line)) {
-                    resolve = true;
-                    break;
-                }
             }
         }
 
-        // If nothing match maybe the user is trying to define the content of a uniform
-        if (!resolve) {
-            consoleMutex.lock();
-            parseUniformData(line, &sandbox.uniforms_data);
-            sandbox.flagChange();
-            consoleMutex.unlock();
-        }
-
+    // Commands comming from the console IN
+    std::string console_line;
+    std::cout << "// > ";
+    while (std::getline(std::cin, console_line)) {
+        runCmd(console_line, consoleMutex);
         std::cout << "// > ";
     }
 }
