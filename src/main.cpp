@@ -40,7 +40,8 @@ std::string header = name + " " + version + " by Patricio Gonzalez Vivo ( patric
 const unsigned int micro_wait = REST_SEC * 1000000;
 
 // Open Sound Control
-int OSC_PORT = 9000;
+// No port set leaves OSC disabled
+int OSC_PORT = -1;
 
 // Here is where all the magic happens
 Sandbox sandbox;
@@ -83,6 +84,7 @@ void printUsage(char * executableName) {
     std::cerr << "// [-l] - draw 500x500 billboard on top right corner of the screen" << std::endl;
     std::cerr << "// [-s/--sec <seconds>] - exit app after a specific amount of seconds" << std::endl;
     std::cerr << "// [-o <file>.png] - save the viewport to an image file before" << std::endl;
+    std::cerr << "// [-p <number>] - enable open sound control on the specified port" << std::endl;
     std::cerr << "// [--headless] - headless rendering. Very useful for making images or benchmarking." << std::endl;
     std::cerr << "// [--nocursor] - hide cursor" << std::endl;
     std::cerr << "// [-I<include_folder>] - add an include folder to default for #include files" << std::endl;
@@ -564,7 +566,7 @@ int main(int argc, char **argv){
                 std::cerr << "At the moment screenshots only support PNG formats" << std::endl;
             }
         }
-        else if ( argument == "--osc-port" ) {
+        else if ( argument== "-p" || argument == "--port" ) {
           i++;
           OSC_PORT = toInt(std::string(argv[i]));
         }
@@ -686,7 +688,7 @@ int main(int argc, char **argv){
     filesMutex.unlock();
 
     if (sandbox.verbose)
-        std::cout << "Starting Render Loop" << std::endl; 
+        std::cout << "Starting Render Loop" <<std::endl;
     
     // Render Loop
     bool timeOut = false;
@@ -878,12 +880,14 @@ void cinWatcherThread() {
 // Open Sound Control Thread
 //============================================================================
 void oscWatcherThread() {
-  MyPacketListener listener;
-  UdpListeningReceiveSocket s(
-      IpEndpointName( IpEndpointName::ANY_ADDRESS, OSC_PORT ),
-      &listener );
+    MyPacketListener listener;
+    UdpListeningReceiveSocket s(
+        IpEndpointName( IpEndpointName::ANY_ADDRESS, OSC_PORT ),
+        &listener );
 
-  std::cout << "osc messages...";
-  s.Run();
+    if(OSC_PORT > 1000) {
+        std::cout << OSC_PORT;
+        std::cout << "OSC listening  ~  localhost:" << OSC_PORT << "...";
+        s.Run();        
+    }
 }
-
