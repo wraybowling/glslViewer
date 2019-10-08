@@ -6,8 +6,8 @@
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/normal.hpp>
 
-#include "tools/fs.h"
-#include "tools/image.h"
+#include "../tools/fs.h"
+#include "../loaders/pixels.h"
 
 // TEXTURE
 Texture::Texture():m_path(""), m_width(0), m_height(0), m_id(0) {
@@ -18,40 +18,54 @@ Texture::~Texture() {
 }
 
 bool Texture::load(const std::string& _path, bool _vFlip) {
+    std::string ext = getExt(_path);
+
+    // Generate an OpenGL texture ID for this texture
     glEnable(GL_TEXTURE_2D);
-
-    if (m_id == 0){
-        // Generate an OpenGL texture ID for this texture
+    if (m_id == 0)
         glGenTextures(1, &m_id);
-    }
-
     glBindTexture(GL_TEXTURE_2D, m_id);
 
-    // glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
 
-    if (haveExt(_path,"png") || haveExt(_path,"PNG") ||
-        haveExt(_path,"jpg") || haveExt(_path,"JPG") ||
-        haveExt(_path,"jpeg") || haveExt(_path,"JPEG")) {
+    if (ext == "png"    || ext == "PNG" ||
+        ext == "jpg"    || ext == "JPG" ||
+        ext == "jpeg"   || ext == "JPEG") {
 
         unsigned char* pixels = loadPixels(_path, &m_width, &m_height, RGB_ALPHA, _vFlip);
 
+#if defined(PLATFORM_RPI) || defined(PLATFORM_RPI4)
+        int max_size = std::max(m_width, m_height);
+        if ( max_size > 1024) {
+            float factor = max_size/1024.0;
+            int w = m_width/factor;
+            int h = m_height/factor;
+            unsigned char * data = new unsigned char [w * 4 * h];
+            rescalePixels( pixels, m_width, m_height, 4, w, h, data);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
+            m_width = w;
+            m_height = h;
+            delete[] data;
+        }
+        else
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, m_width, m_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+#else
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, m_width, m_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
-
+#endif
         // delete[] pixels;
         delete pixels;
     }
 
-    else if (haveExt(_path, "hdr") || haveExt(_path,"HDR")) {
-        float* pixels = loadHDRFloatPixels(_path, &m_width, &m_height, _vFlip);
+    else if (ext == "hdr" || ext == "HDR") {
+        float* pixels = loadPixelsHDR(_path, &m_width, &m_height, _vFlip);
 
-    #ifndef PLATFORM_RPI
-        GLenum InternalFormat = GL_RGB16F_ARB;
-    #else
+    #if defined(PLATFORM_RPI) || defined(PLATFORM_RPI4) 
         GLenum InternalFormat = GL_RGB;
+    #else
+        GLenum InternalFormat = GL_RGB16F_ARB;
     #endif
 
         glTexImage2D(GL_TEXTURE_2D, 0, InternalFormat, m_width, m_height, 0, GL_RGB, GL_FLOAT, pixels);
@@ -59,8 +73,6 @@ bool Texture::load(const std::string& _path, bool _vFlip) {
         // delete[] pixels;
         delete pixels;
     }
-
-    glGenerateMipmap(GL_TEXTURE_2D);
 
     m_path = _path;
 
@@ -70,24 +82,22 @@ bool Texture::load(const std::string& _path, bool _vFlip) {
 }
 
 bool Texture::loadBump(const std::string& _path, bool _vFlip) {
+    std::string ext = getExt(_path);
+
+    // Generate an OpenGL texture ID for this texture
     glEnable(GL_TEXTURE_2D);
-
-    if (m_id == 0){
-        // Generate an OpenGL texture ID for this texture
+    if (m_id == 0)
         glGenTextures(1, &m_id);
-    }
-
     glBindTexture(GL_TEXTURE_2D, m_id);
 
-    // glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
 
-    if (haveExt(_path,"png") || haveExt(_path,"PNG") ||
-        haveExt(_path,"jpg") || haveExt(_path,"JPG") ||
-        haveExt(_path,"jpeg") || haveExt(_path,"JPEG")) {
+    if (ext == "png"    || ext == "PNG" ||
+        ext == "jpg"    || ext == "JPG" ||
+        ext == "jpeg"   || ext == "JPEG") {
 
         uint16_t* pixels = loadPixels16(_path, &m_width, &m_height, LUMINANCE, _vFlip);
 
@@ -130,10 +140,10 @@ bool Texture::loadBump(const std::string& _path, bool _vFlip) {
             }
         }
 
-    #ifndef PLATFORM_RPI
-        GLenum InternalFormat = GL_RGB16F_ARB;
-    #else
+    #if defined(PLATFORM_RPI) || defined(PLATFORM_RPI4) 
         GLenum InternalFormat = GL_RGB;
+    #else
+        GLenum InternalFormat = GL_RGB16F_ARB;
     #endif
 
         glTexImage2D(GL_TEXTURE_2D, 0, InternalFormat, m_width, m_height, 0, GL_RGB, GL_FLOAT, &result[0]);
@@ -141,12 +151,75 @@ bool Texture::loadBump(const std::string& _path, bool _vFlip) {
         delete pixels;
     }
 
-    glGenerateMipmap(GL_TEXTURE_2D);
-
     m_path = _path;
 
     unbind();
 
+    return true;
+}
+
+bool Texture::load(int _width, int _height, int _component, int _bits, const unsigned char* _data) {
+
+    // Generate an OpenGL texture ID for this texturez
+    glEnable(GL_TEXTURE_2D);
+    if (m_id == 0)
+        glGenTextures(1, &m_id);
+    glBindTexture(GL_TEXTURE_2D, m_id);
+
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+
+    GLenum format = GL_RGBA;
+    if (_component == 4) {
+        format = GL_RGBA;
+    }
+    else if (_component == 3) {
+        format = GL_RGB;
+    }
+#if !defined(PLATFORM_RPI) && !defined(PLATFORM_RPI4)
+    else if (_component == 2) {
+        format = GL_RG;
+    } 
+    else if (_component == 1) {
+        format = GL_RED;
+    }
+#endif
+    else
+        std::cout << "Unrecognize GLenum format " << _component << std::endl;
+
+    GLenum type = GL_UNSIGNED_BYTE;
+    if (_bits == 16) {
+        type = GL_UNSIGNED_SHORT;
+    } 
+    else if (_bits == 8) {
+        type = GL_UNSIGNED_BYTE;
+    }
+    else 
+        std::cout << "Unrecognize GLenum type for " << _bits << " bits" << std::endl;
+
+    m_width = _width;
+    m_height = _height;
+#if defined(PLATFORM_RPI) || defined(PLATFORM_RPI4)
+    int max_size = std::max(m_width, m_height);
+    if ( max_size > 1024) {
+        float factor = max_size/1024.0;
+        int w = m_width/factor;
+        int h = m_height/factor;
+        unsigned char * data = new unsigned char [w * 4 * h];
+        rescalePixels( _data, m_width, m_height, 4, w, h, data);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
+        m_width = w;
+        m_height = h;
+        delete[] data;
+    }
+    else
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, m_width, m_height, 0, format, type, _data);
+#else
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, m_width, m_height, 0, format, type, _data);
+#endif
     return true;
 }
 

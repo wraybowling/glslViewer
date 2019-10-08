@@ -27,27 +27,32 @@ static double fDelta = 0.0f;
 static double fFPS = 0.0f;
 static float fPixelDensity = 1.0;
 
-#ifdef PLATFORM_RPI
+#if defined(PLATFORM_LINUX) || defined(PLATFORM_OSX)
+// GLWF ( OSX/Linux ) globals
+//----------------------------------------------------
+static bool left_mouse_button_down = false;
+static GLFWwindow* window;
+
+#elif defined(PLATFORM_RPI) || defined(PLATFORM_RPI4)
 #include <assert.h>
 #include <fcntl.h>
 #include <iostream>
 #include <termios.h>
-#include <string>
 #include <fstream>
-
-#define check() assert(glGetError() == 0)
 
 // Raspberry globals
 //----------------------------------------------------
-DISPMANX_DISPLAY_HANDLE_T dispman_display;
+
+#define check() assert(glGetError() == 0)
 
 EGLDisplay display;
-EGLSurface surface;
 EGLContext context;
+EGLSurface surface;
 
 // unsigned long long timeStart;
 struct timespec time_start;
-static bool bBcm = false;
+std::string device_mouse = "/dev/input/mouse1";
+std::string device_screen = "/dev/dri/card1";
 
 double getTimeSec() {
     timespec now;
@@ -63,36 +68,218 @@ double getTimeSec() {
     return double(temp.tv_sec) + double(temp.tv_nsec/1000000000.);
 }
 
-#else
-
-// OSX/Linux globals
-//----------------------------------------------------
-static bool left_mouse_button_down = false;
-static GLFWwindow* window;
+// Get the EGL error back as a string. Useful for debugging.
+static const char *eglGetErrorStr() {
+    switch (eglGetError()) {
+    case EGL_SUCCESS:
+        return "The last function succeeded without error.";
+    case EGL_NOT_INITIALIZED:
+        return "EGL is not initialized, or could not be initialized, for the "
+               "specified EGL display connection.";
+    case EGL_BAD_ACCESS:
+        return "EGL cannot access a requested resource (for example a context "
+               "is bound in another thread).";
+    case EGL_BAD_ALLOC:
+        return "EGL failed to allocate resources for the requested operation.";
+    case EGL_BAD_ATTRIBUTE:
+        return "An unrecognized attribute or attribute value was passed in the "
+               "attribute list.";
+    case EGL_BAD_CONTEXT:
+        return "An EGLContext argument does not name a valid EGL rendering "
+               "context.";
+    case EGL_BAD_CONFIG:
+        return "An EGLConfig argument does not name a valid EGL frame buffer "
+               "configuration.";
+    case EGL_BAD_CURRENT_SURFACE:
+        return "The current surface of the calling thread is a window, pixel "
+               "buffer or pixmap that is no longer valid.";
+    case EGL_BAD_DISPLAY:
+        return "An EGLDisplay argument does not name a valid EGL display "
+               "connection.";
+    case EGL_BAD_SURFACE:
+        return "An EGLSurface argument does not name a valid surface (window, "
+               "pixel buffer or pixmap) configured for GL rendering.";
+    case EGL_BAD_MATCH:
+        return "Arguments are inconsistent (for example, a valid context "
+               "requires buffers not supplied by a valid surface).";
+    case EGL_BAD_PARAMETER:
+        return "One or more argument values are invalid.";
+    case EGL_BAD_NATIVE_PIXMAP:
+        return "A NativePixmapType argument does not refer to a valid native "
+               "pixmap.";
+    case EGL_BAD_NATIVE_WINDOW:
+        return "A NativeWindowType argument does not refer to a valid native "
+               "window.";
+    case EGL_CONTEXT_LOST:
+        return "A power management event has occurred. The application must "
+               "destroy all contexts and reinitialise OpenGL ES state and "
+               "objects to continue rendering.";
+    default:
+        break;
+    }
+    return "Unknown error!";
+}
 #endif
 
-void initGL (glm::ivec4 &_viewport, bool _headless, bool _alwaysOnTop) {
+#if defined(PLATFORM_RPI)
+DISPMANX_DISPLAY_HANDLE_T dispman_display;
 
-    #ifdef PLATFORM_RPI
+#elif defined(PLATFORM_RPI4)
+// https://github.com/matusnovak/rpi-opengl-without-x/blob/master/triangle_rpi4.c
+
+int device;
+drmModeModeInfo mode;
+struct gbm_device *gbmDevice;
+struct gbm_surface *gbmSurface;
+drmModeCrtc *crtc;
+uint32_t connectorId;
+
+static drmModeConnector *getConnector(drmModeRes *resources) {
+    for (int i = 0; i < resources->count_connectors; i++) {
+        drmModeConnector *connector = drmModeGetConnector(device, resources->connectors[i]);
+        if (connector->connection == DRM_MODE_CONNECTED)
+            return connector;
+        drmModeFreeConnector(connector);
+    }
+    return NULL;
+}
+
+static drmModeEncoder *findEncoder(drmModeRes *resources, drmModeConnector *connector) {
+    if (connector->encoder_id)
+        return drmModeGetEncoder(device, connector->encoder_id);
+    return NULL;
+}
+
+
+// static int matchConfigToVisual(EGLDisplay display, EGLint visualId, EGLConfig *configs, int count) {
+//     EGLint id;
+//     for (int i = 0; i < count; ++i) {
+//         if (!eglGetConfigAttrib(display, configs[i], EGL_NATIVE_VISUAL_ID, &id))
+//             continue;
+//         if (id == visualId)
+//             return i;
+//     }
+//     return -1;
+// }
+
+static struct gbm_bo *previousBo = NULL;
+static uint32_t previousFb;
+
+static void gbmSwapBuffers() {
+    struct gbm_bo *bo = gbm_surface_lock_front_buffer(gbmSurface);
+    uint32_t handle = gbm_bo_get_handle(bo).u32;
+    uint32_t pitch = gbm_bo_get_stride(bo);
+    uint32_t fb;
+    drmModeAddFB(device, mode.hdisplay, mode.vdisplay, 24, 32, pitch, handle, &fb);
+    drmModeSetCrtc(device, crtc->crtc_id, fb, 0, 0, &connectorId, 1, &mode);
+    if (previousBo) {
+        drmModeRmFB(device, previousFb);
+        gbm_surface_release_buffer(gbmSurface, previousBo);
+    }
+    previousBo = bo;
+    previousFb = fb;
+}
+
+static void gbmClean() {
+    // set the previous crtc
+    drmModeSetCrtc(device, crtc->crtc_id, crtc->buffer_id, crtc->x, crtc->y, &connectorId, 1, &crtc->mode);
+    drmModeFreeCrtc(crtc);
+    if (previousBo) {
+        drmModeRmFB(device, previousFb);
+        gbm_surface_release_buffer(gbmSurface, previousBo);
+    }
+    gbm_surface_destroy(gbmSurface);
+    gbm_device_destroy(gbmDevice);
+}
+#endif
+
+#if defined(PLATFORM_RPI) || defined(PLATFORM_RPI4)
+static bool bHostInited = false;
+static void initHost() {
+    if (bHostInited)
+        return;
+
+    #if defined(PLATFORM_RPI)
+    bcm_host_init();
+
+    #elif defined(PLATFORM_RPI4)
+    // You can try chaning this to "card0" if "card1" does not work.
+    device = open(device_screen.c_str(), O_RDWR | O_CLOEXEC);
+
+    drmModeRes *resources = drmModeGetResources(device);
+    if (resources == NULL) {
+        std::cerr << "Unable to get DRM resources" << std::endl;
+        return EXIT_FAILURE;
+    }
+
+    drmModeConnector *connector = getConnector(resources);
+    if (connector == NULL) {
+        std::cerr << "Unable to get connector" << std::endl;
+        drmModeFreeResources(resources);
+        return EXIT_FAILURE;
+    }
+
+    connectorId = connector->connector_id;
+    mode = connector->modes[0];
+
+    drmModeEncoder *encoder = findEncoder(resources, connector);
+    if (connector == NULL) {
+        std::cerr << "Unable to get encoder" << std::endl;
+        drmModeFreeConnector(connector);
+        drmModeFreeResources(resources);
+        return EXIT_FAILURE;
+    }
+
+    crtc = drmModeGetCrtc(device, encoder->crtc_id);
+    drmModeFreeEncoder(encoder);
+    drmModeFreeConnector(connector);
+    drmModeFreeResources(resources);
+    gbmDevice = gbm_create_device(device);
+    gbmSurface = gbm_surface_create(gbmDevice, mode.hdisplay, mode.vdisplay, GBM_FORMAT_XRGB8888, GBM_BO_USE_SCANOUT | GBM_BO_USE_RENDERING);
+    #endif
+
+    bHostInited = true;
+}
+
+static EGLDisplay getDisplay() {
+    initHost();
+    // printf("resolution: %ix%i\n", mode.hdisplay, mode.vdisplay);
+
+    #if defined(PLATFORM_RPI)
+    return eglGetDisplay(EGL_DEFAULT_DISPLAY);
+
+    #elif defined(PLATFORM_RPI4)
+
+    return eglGetDisplay(gbmDevice);
+    #endif
+}
+#endif
+
+void initGL (glm::ivec4 &_viewport, WindowStyle _style) {
+
+    #if defined(PLATFORM_RPI) || defined(PLATFORM_RPI4)
         // RASPBERRY_PI
-
-        // Start clock
-        // gettimeofday(&tv, NULL);
-        // timeStart = (unsigned long long)(tv.tv_sec) * 1000 +
-        //             (unsigned long long)(tv.tv_usec) / 1000;
         clock_gettime(CLOCK_MONOTONIC, &time_start);
-
-        // Start OpenGL ES
-        if (!bBcm) {
-            bcm_host_init();
-            bBcm = true;
-        }
 
         // Clear application state
         EGLBoolean result;
-        EGLint num_config;
 
-        static const EGLint attribute_list[] = {
+        display = getDisplay();
+        assert(display != EGL_NO_DISPLAY);
+        check();
+
+        result = eglInitialize(display, NULL, NULL);
+        assert(EGL_FALSE != result);
+        check();
+
+        // Make sure that we can use OpenGL in this EGL app.
+        // result = eglBindAPI(EGL_OPENGL_API);
+        result = eglBindAPI(EGL_OPENGL_ES_API);
+        assert(EGL_FALSE != result);
+        check();
+       
+
+        static const EGLint configAttribs[] = {
             EGL_RED_SIZE, 8,
             EGL_GREEN_SIZE, 8,
             EGL_BLUE_SIZE, 8,
@@ -104,38 +291,52 @@ void initGL (glm::ivec4 &_viewport, bool _headless, bool _alwaysOnTop) {
             EGL_NONE
         };
 
-        static const EGLint context_attributes[] = {
+        static const EGLint contextAttribs[] = {
             EGL_CONTEXT_CLIENT_VERSION, 2,
             EGL_NONE
         };
 
         EGLConfig config;
-
-        // get an EGL display connection
-        display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
-        assert(display!=EGL_NO_DISPLAY);
-        check();
-
-        // initialize the EGL display connection
-        result = eglInitialize(display, NULL, NULL);
-        assert(EGL_FALSE != result);
-        check();
+        EGLint numConfigs;
+        // EGLint count;
+        // eglGetConfigs(display, NULL, 0, &count);
+        // EGLConfig *configs = malloc(count * sizeof(configs));
 
         // get an appropriate EGL frame buffer configuration
-        result = eglChooseConfig(display, attribute_list, &config, 1, &num_config);
-        assert(EGL_FALSE != result);
-        check();
+        if (eglChooseConfig(display, configAttribs, &config, 1, &numConfigs) == EGL_FALSE) {
+            std::cerr << "Failed to get EGL configs! Error: " << eglGetErrorStr() << std::endl;
+            eglTerminate(display);
+            #ifdef PLATFORM_RPI4
+            gbmClean();
+            #endif
+            return EXIT_FAILURE;
+        }
 
-        // get an appropriate EGL frame buffer configuration
-        result = eglBindAPI(EGL_OPENGL_ES_API);
-        assert(EGL_FALSE != result);
-        check();
+        // #ifdef PLATFORM_RPI4
+        // I am not exactly sure why the EGL config must match the GBM format.
+        // But it works!
+        // int configIndex = matchConfigToVisual(display, GBM_FORMAT_XRGB8888, configs, numConfigs);
+        // if (configIndex < 0) {
+        //     std::cerr << "Failed to find matching EGL config! Error: " << eglGetErrorStr() << std::endl;
+        //     eglTerminate(display);
+        //     gbm_surface_destroy(gbmSurface);
+        //     gbm_device_destroy(gbmDevice);
+        //     return EXIT_FAILURE;
+        // }
+        // #endif
 
         // create an EGL rendering context
-        context = eglCreateContext(display, config, EGL_NO_CONTEXT, context_attributes);
-        assert(context!=EGL_NO_CONTEXT);
-        check();
+        context = eglCreateContext(display, config, EGL_NO_CONTEXT, contextAttribs);
+        if (context == EGL_NO_CONTEXT) {
+            std::cerr << "Failed to create EGL context! Error: " << eglGetErrorStr() << std::endl;
+            eglTerminate(display);
+            #ifdef PLATFORM_RPI4
+            gbmClean();
+            #endif
+            return EXIT_FAILURE;
+        }
 
+        #ifdef PLATFORM_RPI
         static EGL_DISPMANX_WINDOW_T nativeviewport;
 
         VC_RECT_T dst_rect;
@@ -155,7 +356,7 @@ void initGL (glm::ivec4 &_viewport, bool _headless, bool _alwaysOnTop) {
         DISPMANX_ELEMENT_HANDLE_T dispman_element;
         DISPMANX_UPDATE_HANDLE_T dispman_update;
 
-        if (_headless) {
+        if (_style == HEADLESS) {
             uint32_t dest_image_handle;
             DISPMANX_RESOURCE_HANDLE_T dispman_resource;
             dispman_resource = vc_dispmanx_resource_create(VC_IMAGE_RGBA32, _viewport.z, _viewport.w, &dest_image_handle);
@@ -180,14 +381,26 @@ void initGL (glm::ivec4 &_viewport, bool _headless, bool _alwaysOnTop) {
         assert(surface != EGL_NO_SURFACE);
         check();
 
+        #elif defined(PLATFORM_RPI4)
+        surface = eglCreateWindowSurface(display, config, gbmSurface, NULL);
+        if (surface == EGL_NO_SURFACE) {
+            std::cerr << "Failed to create EGL surface! Error: " << eglGetErrorStr() << std::endl;
+            eglDestroyContext(display, context);
+            eglTerminate(display);
+            gbmClean();
+            return EXIT_FAILURE;
+        }
+
+        #endif
+
         // connect the context to the surface
         result = eglMakeCurrent(display, surface, surface, context);
         assert(EGL_FALSE != result);
         check();
+        // free(configs);
 
-        setWindowSize(_viewport.z,_viewport.w);
     #else
-        // OSX/LINUX use GLFW
+        // GLFW (OSX/LINUX)
         // ---------------------------------------------
         glfwSetErrorCallback([](int err, const char* msg)->void {
             std::cerr << "GLFW error 0x"<<std::hex<<err<<std::dec<<": "<<msg<<"\n";
@@ -197,18 +410,27 @@ void initGL (glm::ivec4 &_viewport, bool _headless, bool _alwaysOnTop) {
             exit(-1);
         }
 
-
-        if (_headless) {
+        if (_style == HEADLESS)
             glfwWindowHint(GLFW_VISIBLE, GL_FALSE);
-        }
-
-        if (_alwaysOnTop) {
+            
+        else if (_style == ALLWAYS_ON_TOP)
             glfwWindowHint(GLFW_FLOATING, GL_TRUE);
+
+        if (_style == FULLSCREEN) {
+            GLFWmonitor* monitor = glfwGetPrimaryMonitor();
+            const GLFWvidmode* mode = glfwGetVideoMode(monitor);
+            _viewport.z = mode->width;
+            _viewport.w = mode->height;
+            glfwWindowHint(GLFW_RED_BITS, mode->redBits);
+            glfwWindowHint(GLFW_GREEN_BITS, mode->greenBits);
+            glfwWindowHint(GLFW_BLUE_BITS, mode->blueBits);
+            glfwWindowHint(GLFW_REFRESH_RATE, mode->refreshRate);
+            window = glfwCreateWindow(_viewport.z, _viewport.w, appTitle.c_str(), monitor, NULL);
         }
+        else
+            window = glfwCreateWindow(_viewport.z, _viewport.w, appTitle.c_str(), NULL, NULL);
 
-        window = glfwCreateWindow(_viewport.z, _viewport.w, appTitle.c_str(), NULL, NULL);
-
-        if(!window) {
+        if (!window) {
             glfwTerminate();
             std::cerr << "ABORT: GLFW create window failed" << std::endl;
             exit(-1);
@@ -216,11 +438,9 @@ void initGL (glm::ivec4 &_viewport, bool _headless, bool _alwaysOnTop) {
 
         glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_HIDDEN);
 
-        setWindowSize(_viewport.z, _viewport.w);
-
         glfwMakeContextCurrent(window);
         glfwSetWindowSizeCallback(window, [](GLFWwindow* _window, int _w, int _h) {
-            setWindowSize(_w,_h);
+            setViewport(_w,_h);
         });
 
         glfwSetKeyCallback(window, [](GLFWwindow* _window, int _key, int _scancode, int _action, int _mods) {
@@ -314,25 +534,34 @@ void initGL (glm::ivec4 &_viewport, bool _headless, bool _alwaysOnTop) {
 
         glfwSetWindowPosCallback(window, [](GLFWwindow* _window, int x, int y) {
             if (fPixelDensity != getPixelDensity()) {
-                setWindowSize(viewport.z, viewport.w);
+                updateViewport();
             }
         });
 
         glfwSwapInterval(1);
+
+        if (_viewport.x > 0 || _viewport.y > 0) {
+            glfwSetWindowPos(window, _viewport.x, _viewport.y);
+        }
     #endif
+    setViewport(_viewport.z,_viewport.w);
 }
 
 bool isGL(){
     #ifdef PLATFORM_RPI
         // RASPBERRY_PI
-        return bBcm;
+        return bHostInited;
+
+    #elif defined(PLATFORM_RPI4)
+        return true;
+
     #else
         // OSX/LINUX
         return !glfwWindowShouldClose(window);
     #endif
 }
 
-#ifndef PLATFORM_RPI
+#if defined(PLATFORM_OSX) || defined(PLATFORM_LINUX) 
 void debounceSetWindowTitle(std::string title){
     static double lastUpdated;
 
@@ -351,12 +580,8 @@ void debounceSetWindowTitle(std::string title){
 void updateGL(){
     // Update time
     // --------------------------------------------------------------------
-    #ifdef PLATFORM_RPI
-        // RASPBERRY_PI
-        // gettimeofday(&tv, NULL);
-        // unsigned long long timeNow =    (unsigned long long)(tv.tv_sec) * 1000 +
-        //                                 (unsigned long long)(tv.tv_usec) / 1000;
-        // double now = (timeNow - timeStart)*0.001;
+    #if defined(PLATFORM_RPI) || defined(PLATFORM_RPI4) 
+        // ANY RASPBERRY PI 
         double now = getTimeSec();
     #else
         // OSX/LINUX
@@ -385,12 +610,12 @@ void updateGL(){
 
     // EVENTS
     // --------------------------------------------------------------------
-    #ifdef PLATFORM_RPI
+    #if defined(PLATFORM_RPI) || defined(PLATFORM_RPI4) 
         // RASPBERRY_PI
         static int fd = -1;
         const int XSIGN = 1<<4, YSIGN = 1<<5;
         if (fd<0) {
-            fd = open("/dev/input/mouse0",O_RDONLY|O_NONBLOCK);
+            fd = open(device_mouse.c_str(),O_RDONLY|O_NONBLOCK);
         }
         if (fd>=0) {
             // Set values to 0
@@ -456,27 +681,43 @@ void updateGL(){
 }
 
 void renderGL(){
-    #ifdef PLATFORM_RPI
-        // RASPBERRY_PI
+    // RASPBERRY_PI
+    #if defined(PLATFORM_RPI) || defined(PLATFORM_RPI4)
         eglSwapBuffers(display, surface);
+
+        #if defined(PLATFORM_RPI4)
+        gbmSwapBuffers();
+        #endif
+
+    // OSX/LINUX
     #else
-        // OSX/LINUX
+        
         glfwSwapBuffers(window);
     #endif
 }
 
 void closeGL(){
-    #ifdef PLATFORM_RPI
+    #if defined(PLATFORM_RPI) || defined(PLATFORM_RPI4)
         // RASPBERRY_PI
         eglSwapBuffers(display, surface);
+
         // Release OpenGL resources
         eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
         eglDestroySurface(display, surface);
         eglDestroyContext(display, context);
         eglTerminate(display);
         eglReleaseThread();
+
+        #if defined(PLATFORM_RPI)
         vc_dispmanx_display_close(dispman_display);
         bcm_host_deinit();
+
+        #elif defined(PLATFORM_RPI4)
+        gbmClean();
+        close(device);
+
+        #endif
+
     #else
         // OSX/LINUX
         glfwSetWindowShouldClose(window, GL_TRUE);
@@ -484,42 +725,69 @@ void closeGL(){
     #endif
 }
 //-------------------------------------------------------------
-
-void setWindowSize(int _width, int _height) {
-    viewport.z = _width;
-    viewport.w = _height;
+void updateViewport() {
     fPixelDensity = getPixelDensity();
-    glViewport(0.0, 0.0, (float)getWindowWidth(), (float)getWindowHeight());
-    orthoMatrix = glm::ortho((float)viewport.x, (float)getWindowWidth(), (float)viewport.y, (float)getWindowHeight());
+    glViewport( (float)viewport.x * fPixelDensity, (float)viewport.y * fPixelDensity,
+                (float)viewport.z * fPixelDensity, (float)viewport.w * fPixelDensity);
+    orthoMatrix = glm::ortho(   (float)viewport.x * fPixelDensity, (float)viewport.z * fPixelDensity, 
+                                (float)viewport.y * fPixelDensity, (float)viewport.w * fPixelDensity);
 
     onViewportResize(getWindowWidth(), getWindowHeight());
+}
+
+void setViewport(float _width, float _height) {
+    viewport.z = _width;
+    viewport.w = _height;
+    updateViewport();
+}
+
+void setWindowSize(int _width, int _height) {
+#if defined(PLATFORM_RPI)
+    // Todo
+#elif defined(PLATFORM_RPI4)
+    // TODO
+#else
+    glfwSetWindowSize(window, _width, _height);
+#endif
+
+    setViewport(_width, _height);
 }
 
 glm::ivec2 getScreenSize() {
     glm::ivec2 screen;
 
-    #ifdef PLATFORM_RPI
+    #if defined(PLATFORM_RPI)
         // RASPBERRYPI
 
-        if (!bBcm) {
-            bcm_host_init();
-            bBcm = true;
-        }
+        if (!bHostInited)
+            initHost();
+
         uint32_t screen_width;
         uint32_t screen_height;
         int32_t success = graphics_get_display_size(0 /* LCD */, &screen_width, &screen_height);
         assert(success >= 0);
         screen = glm::ivec2(screen_width, screen_height);
+
+    #elif defined(PLATFORM_RPI4)
+        if (!bHostInited)
+            initHost();
+
+        screen = glm::ivec2(mode.hdisplay, mode.vdisplay);
+
     #else
         // OSX/Linux
-        glfwGetMonitorPhysicalSize(glfwGetPrimaryMonitor(), &screen.x, &screen.y);
+        // glfwGetMonitorPhysicalSize(glfwGetPrimaryMonitor(), &screen.x, &screen.y);
+        GLFWmonitor* monitor = glfwGetPrimaryMonitor();
+        const GLFWvidmode* mode = glfwGetVideoMode(monitor);
+        screen.x = mode->width;
+        screen.y = mode->height;
     #endif
 
     return screen;
 }
 
 float getPixelDensity() {
-    #ifdef PLATFORM_RPI
+    #if defined(PLATFORM_RPI) || defined(PLATFORM_RPI4)
         // RASPBERRYPI
         return 1.;
     #else
@@ -536,11 +804,11 @@ glm::ivec4 getViewport() {
 }
 
 int getWindowWidth() {
-    return viewport.z*fPixelDensity;
+    return viewport.z * fPixelDensity;
 }
 
 int getWindowHeight() {
-    return viewport.w*fPixelDensity;
+    return viewport.w * fPixelDensity;
 }
 
 glm::mat4 getOrthoMatrix() {

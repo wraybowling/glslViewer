@@ -13,26 +13,25 @@
 
 Shader::Shader():
     m_program(0), 
-    m_fragmentShader(0),m_vertexShader(0),
-    m_defineChange(true) {
+    m_fragmentShader(0),m_vertexShader(0) {
 
     // Adding default defines
-    addDefine("GLSLVIEWER", "1");
+    addDefine("GLSLVIEWER", 160);
 
     // Define PLATFORM
     #ifdef PLATFORM_OSX
     addDefine("PLATFORM_OSX");
     #elif defined(PLATFORM_LINUX)
     addDefine("PLATFORM_LINUX");
-    #elif defined(PLATFORM_RPI)
+    #elif defined(PLATFORM_RPI) || defined(PLATFORM_RPI4)
     addDefine("PLATFORM_RPI");
     #endif
 }
 
 Shader::~Shader() {
-    if (m_program != 0) {           // Avoid crash when no command line arguments supplied
+    // Avoid crash when no command line arguments supplied
+    if (m_program != 0)
         glDeleteProgram(m_program);
-    }
 }
 
 bool Shader::load(const std::string& _fragmentSrc, const std::string& _vertexSrc, bool _verbose) {
@@ -116,62 +115,6 @@ bool Shader::reload(bool _verbose) {
     return load(m_fragmentSource, m_vertexSource, _verbose);
 }
 
-void Shader::addDefine(const std::string &_define, const std::string &_value) {
-    // if doesn't exist
-    if (m_defines.find(_define) == m_defines.end()) {
-        // add it
-        m_defines[_define] = _value;
-        m_defineChange = true;
-    }
-    // if its different
-    else if ( m_defines[_define] != _value){
-        // change it
-        m_defines[_define] = _value;
-        m_defineChange = true;
-    }
-}
-
-void Shader::addDefine( const std::string &_define, int _n ) {
-    addDefine(_define, toString(_n));
-}
-void Shader::addDefine( const std::string &_define, float _n ) {
-    addDefine(_define, toString(_n, 3));
-}
-
-void Shader::addDefine( const std::string &_define, glm::vec2 _v ) {
-    addDefine(_define, "vec2(" + toString(_v, ',') + ")");
-}
-
-void Shader::addDefine( const std::string &_define, glm::vec3 _v ) {
-    addDefine(_define, "vec3(" + toString(_v, ',') + ")");
-}
-
-void Shader::addDefine( const std::string &_define, glm::vec4 _v ) {
-    addDefine(_define, "vec4(" + toString(_v, ',') + ")");
-}
-
-void Shader::delDefine(const std::string &_define) {
-    if (m_defines.find(_define) != m_defines.end()) {
-        m_defines.erase(_define);
-        m_defineChange = true;
-    }
-}
-
-void Shader::printDefines() {
-    for (DefinesList_cit it = m_defines.begin(); it != m_defines.end(); ++it) {
-        std::cout << it->first << " " << it->second << std::endl;
-    }
-}
-
-void Shader::mergeDefines(const DefinesList &_defines) {
-    m_defineChange += merge(_defines, m_defines);
-}
-
-void Shader::replaceDefines(const DefinesList &_defines) {
-    m_defines = _defines;
-    m_defineChange = true;
-}
-
 const GLint Shader::getAttribLocation(const std::string& _attribute) const {
     return glGetAttribLocation(m_program, _attribute.c_str());
 }
@@ -203,18 +146,18 @@ GLuint Shader::compileShader(const std::string& _src, GLenum _type, bool _verbos
         prolog += "#define " + it->first + " " + it->second + '\n';
     }
 
-    if (_verbose) {
-        if (_type == GL_VERTEX_SHADER) {
-            std::cout << "// ---------- Vertex Shader" << std::endl;
-        }
-        else {
-            std::cout << "// ---------- Fragment Shader" << std::endl;
-        }
-        std::cout << prolog << std::endl;
-        std::cout << _src << std::endl;
-    }
+    // if (_verbose) {
+    //     if (_type == GL_VERTEX_SHADER) {
+    //         std::cout << "// ---------- Vertex Shader" << std::endl;
+    //     }
+    //     else {
+    //         std::cout << "// ---------- Fragment Shader" << std::endl;
+    //     }
+    //     std::cout << prolog << std::endl;
+    //     std::cout << _src << std::endl;
+    // }
 
-    prolog += "#line 1\n";
+    prolog += "#line 0\n";
 
     const GLchar* sources[2] = {
         (const GLchar*) prolog.c_str(),
@@ -231,7 +174,7 @@ GLuint Shader::compileShader(const std::string& _src, GLenum _type, bool _verbos
     GLint infoLength = 0;
     glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &infoLength);
     
-#ifdef PLATFORM_RPI
+#if defined(PLATFORM_RPI) || defined(PLATFORM_RPI4) 
     if (infoLength > 1 && !isCompiled) {
 #else
     if (infoLength > 1) {

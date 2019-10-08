@@ -8,6 +8,14 @@ Model::Model():
     m_model_vbo(nullptr), m_bbox_vbo(nullptr), 
     m_bbmin(100000.0), m_bbmax(-1000000.),
     m_name(""), m_area(0.0f) {
+
+#if defined(PLATFORM_RPI) || defined(PLATFORM_RPI4) 
+    addDefine("LIGHT_SHADOWMAP", "u_lightShadowMap");
+    addDefine("LIGHT_SHADOWMAP_SIZE", "512.0");
+#else
+    addDefine("LIGHT_SHADOWMAP", "u_lightShadowMap");
+    addDefine("LIGHT_SHADOWMAP_SIZE", "1024.0");
+#endif
 }
 
 Model::Model(const std::string& _name, Mesh &_mesh, const Material &_mat):
@@ -20,11 +28,11 @@ Model::Model(const std::string& _name, Mesh &_mesh, const Material &_mat):
 
 void Model::setName(const std::string& _str) {
     if (!m_name.empty())
-        delDefine( "MODEL_" + toUpper( toUnderscore( purifyString(m_name) ) ) );
+        delDefine( "MODEL_NAME_" + toUpper( toUnderscore( purifyString(m_name) ) ) );
 
     if (!_str.empty()) {
         m_name = toLower( toUnderscore( purifyString(_str) ) );
-        addDefine( "MODEL_" + toUpper( m_name ) );
+        addDefine( "MODEL_NAME_" + toUpper( m_name ) );
     }
 }
 
@@ -55,29 +63,37 @@ bool Model::loadGeom(Mesh& _mesh) {
 
     // Setup Shader and GEOMETRY DEFINE FLAGS
     if (_mesh.hasColors())
-        addDefine("MODEL_HAS_COLORS");
+        addDefine("MODEL_VERTEX_COLOR", "v_color");
 
     if (_mesh.hasNormals())
-        addDefine("MODEL_HAS_NORMALS");
+        addDefine("MODEL_VERTEX_NORMAL", "v_normal");
 
     if (_mesh.hasTexCoords())
-        addDefine("MODEL_HAS_TEXCOORDS");
+        addDefine("MODEL_VERTEX_TEXCOORD", "v_texcoord");
 
     if (_mesh.hasTangents())
-        addDefine("MODEL_HAS_TANGENTS");
+        addDefine("MODEL_VERTEX_TANGENT", "v_tangent");
 
-    addDefine("SHADOW_MAP", "u_ligthShadowMap");
-#ifdef PLATFORM_RPI
-    addDefine("SHADOW_MAP_SIZE", "512.0");
-#else
-    addDefine("SHADOW_MAP_SIZE", "1024.0");
-#endif
+    if (_mesh.getDrawMode() == GL_POINTS)
+        addDefine("MODEL_PRIMITIVE_POINTS");
+    else if (_mesh.getDrawMode() == GL_LINES)
+        addDefine("MODEL_PRIMITIVE_LINES");
+    else if (_mesh.getDrawMode() == GL_LINE_STRIP)
+        addDefine("MODEL_PRIMITIVE_LINE_STRIP");
+    else if (_mesh.getDrawMode() == GL_TRIANGLES)
+        addDefine("MODEL_PRIMITIVE_TRIANGLES");
+    else if (_mesh.getDrawMode() == GL_TRIANGLE_FAN)
+        addDefine("MODEL_PRIMITIVE_TRIANGLE_FAN");
+
+    addDefine("LIGHT_SHADOWMAP", "u_lightShadowMap");
+    addDefine("LIGHT_SHADOWMAP_SIZE", "1024.0");
 
     return true;
 }
 
 bool Model::loadMaterial(const Material &_material) {
-    return _material.feedProperties(m_shader);
+    m_shader.mergeDefines(&_material);
+    return true;
 }
 
 bool Model::loadShader(const std::string& _fragStr, const std::string& _vertStr, bool verbose) {
@@ -103,7 +119,7 @@ void Model::clear() {
     }
 }
 
-void Model::draw(Uniforms& _uniforms, const glm::mat4& _viewProjectionMatrix) {
+void Model::render(Uniforms& _uniforms, const glm::mat4& _viewProjectionMatrix) {
 
     // If the model and the shader are loaded
     if ( m_model_vbo && m_shader.isLoaded() ) {
@@ -115,7 +131,16 @@ void Model::draw(Uniforms& _uniforms, const glm::mat4& _viewProjectionMatrix) {
         _uniforms.feedTo( m_shader);
 
         // Pass special uniforms
-        m_shader.setUniform( "u_modelViewProjectionMatrix", _viewProjectionMatrix );
-        m_model_vbo->render( &m_shader );
+        m_shader.setUniform( "u_modelViewProjectionMatrix", _viewProjectionMatrix);
+        render( &m_shader );
     }
+}
+
+void Model::render(Shader* _shader) {
+    m_model_vbo->render(_shader);
+}
+
+void Model::renderBbox(Shader* _shader) {
+    if (m_bbox_vbo)
+        m_model_vbo->render(_shader);
 }

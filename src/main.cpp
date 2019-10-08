@@ -38,6 +38,7 @@ std::string name = "GlslViewer";
 std::string header = name + " " + version + " by Patricio Gonzalez Vivo ( patriciogonzalezvivo.com )"; 
 
 const unsigned int micro_wait = REST_SEC * 1000000;
+bool fullFps = false;
 
 // Open Sound Control
 // No port set leaves OSC disabled
@@ -56,11 +57,11 @@ void onExit();
 void printUsage(char * executableName) {
     std::cerr << "// " << header << std::endl;
     std::cerr << "// "<< std::endl;
-    std::cerr << "// Swiss army knife of GLSL Shaders. Loads frag/vertex shaders, images, and" << std::endl;
-    std::cerr << "// geometries. Will reload automatically on changes. Support for multiple"<< std::endl;
-    std::cerr << "// buffers, background, and postprocessing passes. Can render headlessly and"<< std::endl;
+    std::cerr << "// Swiss army knife of GLSL Shaders. Loads frag/vertex shaders, images and " << std::endl;
+    std::cerr << "// geometries. Will reload automatically on changes. Support for multi  "<< std::endl;
+    std::cerr << "// buffers, baground and postprocessing passes. Can render headlessly and "<< std::endl;
     std::cerr << "// into a file. Use POSIX STANDARD CONSOLE IN/OUT to comunicate (uniforms,"<< std::endl;
-    std::cerr << "// camera position, scene description, and commands) to and with other"<< std::endl;
+    std::cerr << "// camera position, scene description and  commands) to and with other "<< std::endl;
     std::cerr << "// programs. Compatible with Linux and MacOS, runs from command line with"<< std::endl;
     std::cerr << "// out X11 enviroment on RaspberryPi devices. "<< std::endl;
     std::cerr << "// "<< std::endl;
@@ -72,21 +73,23 @@ void printUsage(char * executableName) {
     std::cerr << "// Arguments:" << std::endl;
     std::cerr << "// <shader>.frag [<shader>.vert] - load shaders" << std::endl;
     std::cerr << "// [<mesh>.(obj/.ply)] - load obj or ply file" << std::endl;
-    std::cerr << "// [<texture>.(png/jpg/hdr)] - load and assign texture to uniform order" << std::endl;
-    std::cerr << "// [-<uniformName> <texture>.(png/jpg/hdr)] - add textures associated with" << std::endl;
-    std::cerr << "//   different uniform sampler2D names" << std::endl;
-    std::cerr << "// [-c/-C/-sh <enviromental_map>.(png/jpg/hdr)] - load a cubemap or sphericalmap" << std::endl;
     std::cerr << "// [-vFlip] - all textures after will be flipped vertically" << std::endl;
+    std::cerr << "// [<texture>.(png/jpg/hdr)] - load and assign texture to uniform order" << std::endl;
+    std::cerr << "// [-<uniformName> <texture>.(png/jpg/hdr)] - add textures associated with different uniform sampler2D names" << std::endl;
+    std::cerr << "// [-C <enviromental_map>.(png/jpg/hdr)] - load a environmental map as cubemap" << std::endl;
+    std::cerr << "// [-c <enviromental_map>.(png/jpg/hdr)] - load a environmental map as cubemap but hided" << std::endl;
+    std::cerr << "// [-sh <enviromental_map>.(png/jpg/hdr)] - load a environmental map as spherical harmonics array" << std::endl;
     std::cerr << "// [-x <pixels>] - set the X position of the billboard on the screen" << std::endl;
     std::cerr << "// [-y <pixels>] - set the Y position of the billboard on the screen" << std::endl;
-    std::cerr << "// [-w <pixels>] - set the width of the billboard" << std::endl;
+    std::cerr << "// [-w <pixels>] - set the width of the window" << std::endl;
     std::cerr << "// [-h <pixels>] - set the height of the billboard" << std::endl;
-    std::cerr << "// [-l] - draw 500x500 billboard on top right corner of the screen" << std::endl;
-    std::cerr << "// [-s/--sec <seconds>] - exit app after a specific amount of seconds" << std::endl;
-    std::cerr << "// [-o <file>.png] - save the viewport to an image file before" << std::endl;
-    std::cerr << "// [-p <number>] - enable open sound control on the specified port" << std::endl;
+    std::cerr << "// [-f|--fullscreen] - load the window in fullscreen" << std::endl;
+    std::cerr << "// [-l|--life-coding] - live code mode, where the billboard is allways visible" << std::endl;
     std::cerr << "// [--headless] - headless rendering. Very useful for making images or benchmarking." << std::endl;
     std::cerr << "// [--nocursor] - hide cursor" << std::endl;
+    std::cerr << "// [--fxaa] - set FXAA as postprocess filter" << std::endl;
+    std::cerr << "// [-o <file>.png] - save the viewport to an image file before" << std::endl;
+    std::cerr << "// [-s/--sec <seconds>] - exit app after a specific amount of seconds" << std::endl;
     std::cerr << "// [-I<include_folder>] - add an include folder to default for #include files" << std::endl;
     std::cerr << "// [-D<define>] - add system #defines directly from the console argument" << std::endl;
     std::cerr << "// [-e/-E <command>] - execute command when start. Multiple -e flags can be chained" << std::endl;
@@ -127,6 +130,15 @@ void declareCommands() {
         return false;
     },
     "version                return glslViewer version.", false));
+
+    commands.push_back(Command("window_width", [&](const std::string& _line){ 
+        if (_line == "window_width") {
+            std::cout << getWindowWidth() << std::endl;
+            return true;
+        }
+        return false;
+    },
+    "window_width                   return the width of the windows.", false));
 
     commands.push_back(Command("window_height", [&](const std::string& _line){ 
         if (_line == "window_height") {
@@ -336,6 +348,25 @@ void declareCommands() {
     },
     "wait,<seconds>                 wait for X <seconds> before excecuting another command."));
 
+    
+    commands.push_back(Command("fullFps", [&](const std::string& _line){
+        if (_line == "fullFps") {
+            std::string rta = fullFps ? "on" : "off";
+            std::cout <<  rta << std::endl; 
+            return true;
+        }
+        else {
+            std::vector<std::string> values = split(_line,',');
+            if (values.size() == 2) {
+                consoleMutex.lock();
+                fullFps = (values[1] == "on");
+                consoleMutex.unlock();
+            }
+        }
+        return false;
+    },
+    "fullFps[,on|off]                go to full FPS or not", false));
+
     commands.push_back(Command("cursor", [&](const std::string& _line){
         if (_line == "cursor") {
             std::string rta = sandbox.cursor ? "on" : "off";
@@ -372,18 +403,22 @@ void declareCommands() {
     },
     "screenshot[,<filename>]        saves a screenshot to a filename.", false));
 
-     commands.push_back(Command("sequence", [&](const std::string& _line){ 
+    commands.push_back(Command("sequence", [&](const std::string& _line){ 
         std::vector<std::string> values = split(_line,',');
-        if (values.size() == 3) {
+        if (values.size() >= 3) {
             float from = toFloat(values[1]);
             float to = toFloat(values[2]);
+            float fps = 24.0;
+
+            if (values.size() == 4)
+                fps = toFloat(values[3]);
 
             if (from >= to) {
                 from = 0.0;
             }
 
             consoleMutex.lock();
-            sandbox.record(from, to);
+            sandbox.record(from, to, fps);
             consoleMutex.unlock();
 
             std::cout << "// " << std::endl;
@@ -396,7 +431,7 @@ void declareCommands() {
 
                 // Check progres.
                 consoleMutex.lock();
-                pct = sandbox.getRecordedPercentage();
+                pct = sandbox.getRecordedPorcentage();
                 consoleMutex.unlock();
                 
                 std::cout << "// [ ";
@@ -415,16 +450,7 @@ void declareCommands() {
         }
         return false;
     },
-    "sequence,<A_sec>,<B_sec>   saves a sequence of images from A to B second.", false));
-
-    commands.push_back(Command("window_width", [&](const std::string& _line){ 
-        if (_line == "window_width") {
-            std::cout << getWindowWidth() << std::endl;
-            return true;
-        }
-        return false;
-    },
-    "window_width           return the width of the windows.", false));
+    "sequence,<A_sec>,<B_sec>[,fps] saves a sequence of images from A to B second.", false));
 
     commands.push_back(Command("q", [&](const std::string& _line){ 
         if (_line == "q") {
@@ -459,8 +485,8 @@ void declareCommands() {
 int main(int argc, char **argv){
 
     // Set the size
-    glm::ivec4 windowPosAndSize = glm::ivec4(0.);
-    #ifdef PLATFORM_RPI
+    glm::ivec4 windowPosAndSize = glm::ivec4(0);
+    #if defined(PLATFORM_RPI) || defined(PLATFORM_RPI4) 
         // RASPBERRYPI default windows size (fullscreen)
         glm::ivec2 screen = getScreenSize();
         windowPosAndSize.z = screen.x;
@@ -471,9 +497,8 @@ int main(int argc, char **argv){
         windowPosAndSize.w = 500;
     #endif
 
-    bool headless = false;
+    WindowStyle windowStyle = REGULAR;
     bool displayHelp = false;
-    bool alwaysOnTop = false;
     for (int i = 1; i < argc ; i++) {
         std::string argument = std::string(argv[i]);
 
@@ -495,20 +520,23 @@ int main(int argc, char **argv){
             i++;
             windowPosAndSize.w = toInt(std::string(argv[i]));
         }
-        else if (   std::string(argv[i]) == "--headless" ) {
-            headless = true;
-        }
         else if (   std::string(argv[i]) == "--help" ) {
             displayHelp = true;
         }
-        
+        else if (   std::string(argv[i]) == "--headless" ) {
+            windowStyle = HEADLESS;
+        }
+        else if (   std::string(argv[i]) == "-f" ||
+                    std::string(argv[i]) == "--fullscreen" ) {
+            windowStyle = FULLSCREEN;
+        }
         else if (   std::string(argv[i]) == "-l" ||
                     std::string(argv[i]) == "--life-coding" ){
-        #ifdef PLATFORM_RPI
+        #if defined(PLATFORM_RPI) || defined(PLATFORM_RPI4) 
             windowPosAndSize.x = windowPosAndSize.z - 500;
             windowPosAndSize.z = windowPosAndSize.w = 500;
         #else
-            alwaysOnTop = true;
+            windowStyle = ALLWAYS_ON_TOP;
         #endif
         }
         
@@ -523,13 +551,12 @@ int main(int argc, char **argv){
     declareCommands();
 
     // Initialize openGL context
-    initGL (windowPosAndSize, headless, alwaysOnTop);
+    initGL (windowPosAndSize, windowStyle);
 
     struct stat st;                         // for files to watch
     float       timeLimit       = -1.0f;    // Time limit
     int         textureCounter  = 0;        // Number of textures to load
     bool        vFlip           = true;     // Flip state
-    bool        fullFps         = false;
 
     //Load the the resources (textures)
     for (int i = 1; i < argc ; i++){
@@ -543,11 +570,17 @@ int main(int argc, char **argv){
         else if (   argument == "-l" ||
                     argument == "--headless") {
         }
+        else if (   std::string(argv[i]) == "-f" ||
+                    std::string(argv[i]) == "--fullscreen" ) {
+        }
         else if (   argument == "--verbose" ) {
             sandbox.verbose = true;
         }
         else if ( argument == "--nocursor" ) {
             sandbox.cursor = false;
+        }
+        else if ( argument == "--fxaa" ) {
+            sandbox.fxaa = true;
         }
         else if ( argument == "-s" || argument == "--sec" ) {
             i++;
@@ -579,14 +612,18 @@ int main(int argc, char **argv){
             arguments_cmds.push_back(std::string(argv[i]));
             execute_exit = true;
         }
-        else if (argument == "-F" ) {
+        else if (argument == "--fullFps" ) {
             fullFps = true;
         }
         else if ( sandbox.frag_index == -1 && (haveExt(argument,"frag") || haveExt(argument,"fs") ) ) {
             if ( stat(argument.c_str(), &st) != 0 ) {
-                std::cerr << "Error watching file " << argv[i] << std::endl;
+                std::cout << "File " << argv[i] << " not founded. Creating a default fragment shader with that name"<< std::endl;
+
+                std::ofstream out(argv[i]);
+                out << default_scene_frag;
+                out.close();
             }
-            else {
+
                 WatchFile file;
                 file.type = FRAG_SHADER;
                 file.path = argument;
@@ -594,13 +631,17 @@ int main(int argc, char **argv){
                 files.push_back(file);
 
                 sandbox.frag_index = files.size()-1;
-            }
+
         }
         else if ( sandbox.vert_index == -1 && ( haveExt(argument,"vert") || haveExt(argument,"vs") ) ) {
             if ( stat(argument.c_str(), &st) != 0) {
-                std::cerr << "Error watching file " << argument << std::endl;
+                std::cout << "File " << argv[i] << " not founded. Creating a default vertex shader with that name"<< std::endl;
+
+                std::ofstream out(argv[i]);
+                out << default_scene_vert;
+                out.close();
             }
-            else {
+
                 WatchFile file;
                 file.type = VERT_SHADER;
                 file.path = argument;
@@ -609,9 +650,10 @@ int main(int argc, char **argv){
 
                 sandbox.vert_index = files.size()-1;
             }
-        }
-        else if ( sandbox.geom_index == -1 && (  haveExt(argument,"ply") || haveExt(argument,"PLY") ||
-                                            haveExt(argument,"obj") || haveExt(argument,"OBJ") ) ) {
+        else if ( sandbox.geom_index == -1 && ( haveExt(argument,"ply") || haveExt(argument,"PLY") ||
+                                                haveExt(argument,"obj") || haveExt(argument,"OBJ") ||
+                                                haveExt(argument,"glb") || haveExt(argument,"GLB") ||
+                                                haveExt(argument,"gltf") || haveExt(argument,"GLTF") ) ) {
             if ( stat(argument.c_str(), &st) != 0) {
                 std::cerr << "Error watching file " << argument << std::endl;
             }
@@ -620,11 +662,12 @@ int main(int argc, char **argv){
                 file.type = GEOMETRY;
                 file.path = argument;
                 file.lastChange = st.st_mtime;
-                files.push_back(file);
+                files.push_back(file); 
                 sandbox.geom_index = files.size()-1;
             }
         }
-        else if ( argument == "-vFlip" ) {
+        else if (   argument == "-vFlip" ||
+                    argument == "--vFlip" ) {
             vFlip = false;
         }
         else if (   haveExt(argument,"hdr") || haveExt(argument,"HDR") ||
@@ -633,17 +676,19 @@ int main(int argc, char **argv){
                     haveExt(argument,"jpeg") || haveExt(argument,"JPEG")) {
 
             if ( sandbox.uniforms.addTexture("u_tex"+toString(textureCounter), argument, files, vFlip) )
-                    textureCounter++;
-                }
+                textureCounter++;
+        }
         else if ( argument == "-c" || argument == "-sh" ) {
             i++;
             argument = std::string(argv[i]);
-            sandbox.getScene().setCubeMap(argument, files, false);
-            }
+            sandbox.uniforms.setCubeMap(argument, files);
+            sandbox.getScene().showCubebox = false;
+        }
         else if ( argument == "-C" ) {
             i++;
             argument = std::string(argv[i]);
-            sandbox.getScene().setCubeMap(argument, files, true);
+            sandbox.uniforms.setCubeMap(argument, files);
+            sandbox.getScene().showCubebox = true;
         }
         else if ( argument.find("-D") == 0 ) {
             // Defines are added/remove once existing shaders
@@ -666,8 +711,31 @@ int main(int argc, char **argv){
             i++;
             argument = std::string(argv[i]);
             sandbox.uniforms.addTexture(parameterPair, argument, files, vFlip);
-            }
-            }
+        }
+    }
+
+    if (sandbox.verbose) {
+       // query strings
+        char *vendor = (char *)glGetString(GL_VENDOR);
+        char *renderer = (char *)glGetString(GL_RENDERER);
+        char *version = (char *)glGetString(GL_VERSION);
+        char *glsl_version = (char *)glGetString(GL_SHADING_LANGUAGE_VERSION);
+    
+        printf("OpenGL ES\n");
+        printf("  Vendor: %s\n", vendor);
+        printf("  Renderer: %s\n", renderer);
+        printf("  Version: %s\n", version);
+        printf("  GLSL version: %s\n", glsl_version);
+
+        // char *exts = (char *)glGetString(GL_EXTENSIONS);
+        // printf("  Extensions: %s\n", exts);
+        // printf("  Implementation limits:\n");
+
+        int param;
+        glGetIntegerv(GL_MAX_TEXTURE_SIZE, &param);
+        std::cout << "  GL_MAX_TEXTURE_SIZE = " << param << std::endl;
+
+    }
 
     // If no shader
     if ( sandbox.frag_index == -1 && sandbox.vert_index == -1 && sandbox.geom_index == -1 ) {
@@ -688,7 +756,7 @@ int main(int argc, char **argv){
     filesMutex.unlock();
 
     if (sandbox.verbose)
-        std::cout << "Starting Render Loop" <<std::endl;
+        std::cout << "Starting Render Loop" << std::endl; 
     
     // Render Loop
     bool timeOut = false;
@@ -731,8 +799,8 @@ int main(int argc, char **argv){
             bRun.store(false);
         }
         else {
-        // Swap the buffers
-        renderGL();
+             // Swap the buffers
+            renderGL();
         }
 
     }
@@ -764,11 +832,9 @@ void onKeyPress (int _key) {
 }
 
 void onMouseMove(float _x, float _y) {
-
 }
 
 void onMouseClick(float _x, float _y, int _button) {
-
 }
 
 void onScroll(float _yoffset) {
@@ -820,7 +886,7 @@ void runCmd(const std::string &_cmd, std::mutex &_mutex) {
     bool resolve = false;
 
     // Check if _cmd is present in the list of commands
-            for (unsigned int i = 0; i < commands.size(); i++) {
+    for (unsigned int i = 0; i < commands.size(); i++) {
         if (beginsWith(_cmd, commands[i].begins_with)) {
 
             // Do require mutex the thread?
@@ -835,18 +901,18 @@ void runCmd(const std::string &_cmd, std::mutex &_mutex) {
 
             // If got resolved stop searching
             if (resolve) {
-                        break;
-                    }
-                }
+                break;
             }
+        }
+    }
 
     // If nothing match maybe the user is trying to define the content of a uniform
     if (!resolve) {
         _mutex.lock();
         sandbox.uniforms.parseLine(_cmd);
         _mutex.unlock();
-        }
     }
+}
 
 //  Command line Thread
 //============================================================================
@@ -859,14 +925,14 @@ void cinWatcherThread() {
     if (arguments_cmds.size() > 0) {
         for (unsigned int i = 0; i < arguments_cmds.size(); i++) {
             runCmd(arguments_cmds[i], consoleMutex);
-                }
+        }
         arguments_cmds.clear();
 
         // If it's using -E exit after executing all commands
         if (execute_exit) {
             bRun.store(false);
-            }
         }
+    }
 
     // Commands comming from the console IN
     std::string console_line;

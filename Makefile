@@ -10,42 +10,55 @@ SOURCES := $(wildcard include/*/*.cc) $(wildcard include/*/*.cpp) $(wildcard src
 OBJECTS := $(SOURCES:.cpp=.o)
 
 PLATFORM = $(shell uname)
-ifneq ("$(wildcard /etc/os-release)","")
-PLATFORM = $(shell . /etc/os-release && echo $$NAME)
-endif
+DRIVER ?= not_defined
 
-#override platform selection on RPi:
 ifneq ("$(wildcard /opt/vc/include/bcm_host.h)","")
-    PLATFORM = $(shell . /etc/os-release && echo $$PRETTY_NAME)
+	ifeq ($(shell cat /proc/cpuinfo | grep 'Revision' | awk '{print $$3}' ), c03111)
+		PLATFORM = RPI4
+		ifeq ($(DRIVER),not_defined)
+			DRIVER = gbm
+		endif
+	else
+		PLATFORM = RPI
+		ifeq ($(DRIVER),not_defined)
+			DRIVER = vc
+		endif
+	endif
+else
+	PLATFORM = $(shell uname)
+	ifeq ($(DRIVER),not_defined)
+		DRIVER = glfw
+	endif
 endif
 
-#$(info Platform ${PLATFORM})
+$(info ${PLATFORM} platform with $(DRIVER) drivers)
 
 INCLUDES +=	-Isrc/ -Iinclude/
 CFLAGS += -Wall -O3 -std=c++11 -fpermissive
 
-ifeq ($(PLATFORM),Raspbian GNU/Linux 8 (jessie))
-CFLAGS += -DGLM_FORCE_CXX98 -DPLATFORM_RPI
-INCLUDES += -I$(SDKSTAGE)/opt/vc/include/ \
-			-I$(SDKSTAGE)/opt/vc/include/interface/vcos/pthreads \
-			-I$(SDKSTAGE)/opt/vc/include/interface/vmcs_host/linux
-LDFLAGS += -L$(SDKSTAGE)/opt/vc/lib/ \
-			-lGLESv2 -lEGL \
-			-lbcm_host \
-			-lpthread
+ifeq ($(DRIVER),vc)
+	CFLAGS += -DGLM_FORCE_CXX14 -DPLATFORM_RPI -Wno-psabi
+	INCLUDES += -I/opt/vc/include/ \
+				-I/opt/vc/include/interface/vcos/pthreads \
+				-I/opt/vc/include/interface/vmcs_host/linux
+	LDFLAGS +=  -L/opt/vc/lib/ \
+				-lbcm_host \
+				-lpthread
 
-else ifeq ($(PLATFORM),Raspbian GNU/Linux 9 (stretch))
-	CFLAGS += -DGLM_FORCE_CXX98 -DPLATFORM_RPI
-	INCLUDES += -I$(SDKSTAGE)/opt/vc/include/ \
-				-I$(SDKSTAGE)/opt/vc/include/interface/vcos/pthreads \
-				-I$(SDKSTAGE)/opt/vc/include/interface/vmcs_host/linux
-	LDFLAGS += -L$(SDKSTAGE)/opt/vc/lib/ \
-			   	-lbrcmGLESv2 -lbrcmEGL \
-			   	-lbcm_host \
-			    -lpthread
-$(info Platform ${PLATFORM})
-
-else ifeq ($(shell uname),Linux)
+	ifeq ($(shell . /etc/os-release && echo $$PRETTY_NAME),Raspbian GNU/Linux 8 (jessie))
+	-	LDFLAGS += -lGLESv2 -lEGL
+	else
+		LDFLAGS += -lbrcmGLESv2 -lbrcmEGL
+	endif
+else ifeq ($(DRIVER),gbm)
+	CFLAGS += -DPLATFORM_RPI4 -Wno-psabi
+	INCLUDES += -I/usr/include/libdrm \
+				-I/usr/include/GLES2
+	LDFLAGS +=  -lGLESv2 -lEGL \
+				-ldrm -lgbm \
+				-lpthread
+	
+else ifeq ($(PLATFORM),Linux)
 CFLAGS += -DPLATFORM_LINUX $(shell pkg-config --cflags glfw3 glu gl)
 LDFLAGS += $(shell pkg-config --libs glfw3 glu gl x11 xrandr xi xxf86vm xcursor xinerama xrender xext xdamage) -lpthread -ldl
 

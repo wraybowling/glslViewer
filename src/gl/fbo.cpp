@@ -43,6 +43,7 @@ Fbo::~Fbo() {
     }
 }
 
+
 void Fbo::allocate(const uint _width, const uint _height, FboType _type) {
     m_type = _type;
 
@@ -76,15 +77,9 @@ void Fbo::allocate(const uint _width, const uint _height, FboType _type) {
         // Create a frame buffer
         glGenFramebuffers(1, &m_id);
 
-        if (color_texture) {
-            // Generate a texture to hold the colour buffer
-            glGenTextures(1, &m_texture);
-        }
-
-        if (m_depth) {
-            // Create a texture to hold the depth buffer
+        // Create a texture to hold the depth buffer
+        if (m_depth) 
             glGenRenderbuffers(1, &m_depth_buffer);
-        }
     }
 
     m_width = _width;
@@ -93,10 +88,15 @@ void Fbo::allocate(const uint _width, const uint _height, FboType _type) {
     bind();
 
     if (color_texture) {
+
+        // Generate a texture to hold the colour buffer
+        if (m_texture == 0) 
+            glGenTextures(1, &m_texture);
+
         // Color
         glBindTexture(GL_TEXTURE_2D, m_texture);
 
-#ifdef PLATFORM_RPI
+#if defined(PLATFORM_RPI) || defined(PLATFORM_RPI4) 
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, m_width, m_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
 #else
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16, m_width, m_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
@@ -115,7 +115,7 @@ void Fbo::allocate(const uint _width, const uint _height, FboType _type) {
     if (m_depth) {
         glBindRenderbuffer(GL_RENDERBUFFER, m_depth_buffer);
 
-#ifdef PLATFORM_RPI
+#if defined(PLATFORM_RPI) || defined(PLATFORM_RPI4) 
         glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT16, m_width, m_height);
 #else
         glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, m_width, m_height);
@@ -126,17 +126,16 @@ void Fbo::allocate(const uint _width, const uint _height, FboType _type) {
         if (depth_texture) {
 
             // Generate a texture to hold the depth buffer
-            if (m_depth_texture == 0) {
+            if (m_depth_texture == 0)
                 glGenTextures(1, &m_depth_texture);
-            }
 
             glBindTexture(GL_TEXTURE_2D, m_depth_texture);
-#ifdef PLATFORM_RPI
+#if defined(PLATFORM_RPI) || defined(PLATFORM_RPI4) 
             glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT16, m_width, m_height, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
             // glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT16, m_width, m_height, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, NULL);
             // glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT16, m_width, m_height, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_SHORT, NULL);
 #else
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32F, m_width, m_height, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32F, m_width, m_height, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, NULL);
 #endif
 
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -147,18 +146,19 @@ void Fbo::allocate(const uint _width, const uint _height, FboType _type) {
         }
     }
 
-    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE) {
+    GLenum result = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    if (result == GL_FRAMEBUFFER_COMPLETE) {
         m_allocated = true;
     }
     else {
-        std::cout << "FBO: not complete" << std::endl;
+        std::cout << "FBO: not complete " << result << std::endl;
     }
     unbind();
 
     glBindTexture(GL_TEXTURE_2D, 0);
-    if (m_depth){
+
+    if (m_depth)
         glBindRenderbuffer(GL_RENDERBUFFER, 0);
-    }
 }
 
 void Fbo::bind() {
@@ -170,11 +170,12 @@ void Fbo::bind() {
         glBindFramebuffer(GL_FRAMEBUFFER, m_id);
         glViewport(0.0f, 0.0f, m_width, m_height);
         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-        if (m_depth) {
+
+        if (m_depth)
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        } else {
+        else
             glClear(GL_COLOR_BUFFER_BIT);
-        }
+
         m_binded = true;
     }
 }

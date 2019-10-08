@@ -7,8 +7,8 @@
 #include "window.h"
 
 #include "tools/text.h"
-#include "tools/image.h"
 #include "tools/shapes.h"
+#include "loaders/pixels.h"
 
 #include "glm/gtx/matrix_transform_2d.hpp"
 #include "glm/gtx/rotate_vector.hpp"
@@ -16,14 +16,12 @@
 #include "shaders/default.h"
 #include "shaders/dynamic_billboard.h"
 #include "shaders/wireframe2D.h"
-#include "shaders/default_scene.h"
-
-#define FRAME_DELTA 0.03333333333
+#include "shaders/fxaa.h"
 
 // ------------------------------------------------------------------------- CONTRUCTOR
 Sandbox::Sandbox(): 
     frag_index(-1), vert_index(-1), geom_index(-1),
-    verbose(false), cursor(true),
+    verbose(false), cursor(true), fxaa(false),
     // Main Vert/Frag/Geom
     m_frag_source(""), m_vert_source(""),
     // Buffers
@@ -33,9 +31,10 @@ Sandbox::Sandbox():
     // Geometry helpers
     m_billboard_vbo(nullptr), m_cross_vbo(nullptr),
     // Record
-    m_record_start(0.0f), m_record_head(0.0f), m_record_end(0.0f), m_record_counter(0), m_record(false),
+    m_record_fdelta(0.04166666667), m_record_start(0.0f), m_record_head(0.0f), m_record_end(0.0f), m_record_counter(0), m_record(false),
     // Scene
-    m_view2d(1.0), m_frame(0), m_change(true),
+    m_view2d(1.0), m_lat(180.0), m_lon(0.0), m_frame(0), m_change(true), m_initialized(false),
+    // Debug
     m_showTextures(false), m_showPasses(false)
 {
 
@@ -49,7 +48,7 @@ Sandbox::Sandbox():
 
     uniforms.functions["u_delta"] = UniformFunction("float", 
     [this](Shader& _shader) {
-        if (m_record) _shader.setUniform("u_delta", float(FRAME_DELTA));
+        if (m_record) _shader.setUniform("u_delta", float(m_record_fdelta));
         else _shader.setUniform("u_delta", float(getDelta()));
     },
     []() { return toString(getDelta()); });
@@ -78,26 +77,34 @@ Sandbox::Sandbox():
         }
     });
 
+    #if !defined(PLATFORM_RPI) && !defined(PLATFORM_RPI4)
     uniforms.functions["u_sceneDepth"] = UniformFunction("sampler2D", [this](Shader& _shader) {
         if (m_postprocessing_enabled && m_scene_fbo.getTextureId()) {
             _shader.setUniformDepthTexture("u_sceneDepth", &m_scene_fbo, _shader.textureIndex++ );
         }
     });
 
+    uniforms.functions["u_lightShadowMap"] = UniformFunction("sampler2D", [this](Shader& _shader) {
+        if (uniforms.lights.size() > 0) {
+            _shader.setUniformDepthTexture("u_lightShadowMap", uniforms.lights[0].getShadowMap(), _shader.textureIndex++ );
+        }
+    });
+    #endif
+
     uniforms.functions["u_view2d"] = UniformFunction("mat3", [this](Shader& _shader) {
         _shader.setUniform("u_view2d", m_view2d);
     });
 
     uniforms.functions["u_modelViewProjectionMatrix"] = UniformFunction("mat4");
-        }
+}
 
 Sandbox::~Sandbox() {
-        }
+}
 
 // ------------------------------------------------------------------------- SET
 
 void Sandbox::setup( WatchFileList &_files, CommandList &_commands ) {
-    
+
     // Add Sandbox Commands
     // ----------------------------------------
     _commands.push_back(Command("debug", [&](const std::string& _line){
@@ -125,8 +132,14 @@ void Sandbox::setup( WatchFileList &_files, CommandList &_commands ) {
                     m_scene.showGrid = (values[1] == "on");
                     m_scene.showAxis = (values[1] == "on");
                     m_scene.showBBoxes = (values[1] == "on");
+                    if (values[1] == "on") {
+                        m_scene.addDefine("DEBUG", values[1]);
+                    }
+                    else {
+                        m_scene.delDefine("DEBUG");
                 }
             }
+        }
         }
         return false;
     },
@@ -143,7 +156,7 @@ void Sandbox::setup( WatchFileList &_files, CommandList &_commands ) {
         return false;
     },
     "defines                return a list of active defines", false));
-
+    
     _commands.push_back( Command("define,", [&](const std::string& _line){ 
         std::vector<std::string> values = split(_line,',');
         if (values.size() == 2) {
@@ -173,7 +186,7 @@ void Sandbox::setup( WatchFileList &_files, CommandList &_commands ) {
         uniforms.print(_line == "uniforms,all");
         return true;
     },
-    "uniforms[,all|active]  return a list of all uniforms and their values or just the one active (default).", false));
+    "uniforms[,all|active]          return a list of all or active uniforms and their values.", false));
 
     _commands.push_back(Command("textures", [&](const std::string& _line){ 
         if (_line == "textures") {
@@ -193,17 +206,210 @@ void Sandbox::setup( WatchFileList &_files, CommandList &_commands ) {
     _commands.push_back(Command("buffers", [&](const std::string& _line){ 
         if (_line == "buffers") {
             uniforms.printBuffers();
+            if (m_postprocessing_enabled) {
+                if (fxaa)
+                    std::cout << "FXAA";
+                else
+                    std::cout << "Custom";
+                std::cout << " postProcessing pass" << std::endl;
+            }
+            
             return true;
-}
+        }
         else {
             std::vector<std::string> values = split(_line,',');
             if (values.size() == 2) {
                 m_showPasses = (values[1] == "on");
-    }
+            }
         }
         return false;
     },
     "buffers                return a list of buffers as their uniform name.", false));
+
+    // LIGTH
+    _commands.push_back(Command("lights", [&](const std::string& _line){ 
+        if (_line == "lights") {
+            uniforms.printLights();
+            return true;
+        }
+        return false;
+    },
+    "lights                         get all light data."));
+
+    _commands.push_back(Command("light_position", [&](const std::string& _line){ 
+        std::vector<std::string> values = split(_line,',');
+        if (values.size() == 4) {
+            if (uniforms.lights.size() > 0) 
+                uniforms.lights[0].setPosition(glm::vec3(toFloat(values[1]),toFloat(values[2]),toFloat(values[3])));
+            return true;
+        }
+        else if (values.size() == 5) {
+            unsigned int i = toInt(values[1]);
+            if (uniforms.lights.size() > i) 
+                uniforms.lights[i].setPosition(glm::vec3(toFloat(values[2]),toFloat(values[3]),toFloat(values[4])));
+            return true;
+        }
+        else {
+            if (uniforms.lights.size() > 0) {
+                glm::vec3 pos = uniforms.lights[0].getPosition();
+                std::cout << ',' << pos.x << ',' << pos.y << ',' << pos.z << std::endl;
+            }
+            return true;
+        }
+        return false;
+    },
+    "light_position[,<x>,<y>,<z>]   get or set the light position."));
+
+    _commands.push_back(Command("light_color", [&](const std::string& _line){ 
+         std::vector<std::string> values = split(_line,',');
+        if (values.size() == 4) {
+            if (uniforms.lights.size() > 0) {
+                uniforms.lights[0].color = glm::vec3(toFloat(values[1]),toFloat(values[2]),toFloat(values[3]));
+                uniforms.lights[0].bChange = true;
+            }
+            return true;
+        }
+        else if (values.size() == 5) {
+            unsigned int i = toInt(values[1]);
+            if (uniforms.lights.size() > i) {
+                uniforms.lights[i].color = glm::vec3(toFloat(values[2]),toFloat(values[3]),toFloat(values[4]));
+                uniforms.lights[i].bChange = true;
+            }
+            return true;
+        }
+        else {
+            if (uniforms.lights.size() > 0) {
+                glm::vec3 color = uniforms.lights[0].color;
+                std::cout << color.x << ',' << color.y << ',' << color.z << std::endl;
+            }
+            
+            return true;
+        }
+        return false;
+    },
+    "light_color[,<r>,<g>,<b>]      get or set the light color."));
+
+    _commands.push_back(Command("light_falloff", [&](const std::string& _line){ 
+         std::vector<std::string> values = split(_line,',');
+        if (values.size() == 2) {
+            if (uniforms.lights.size() > 0) {
+                uniforms.lights[0].falloff = toFloat(values[1]);
+                uniforms.lights[0].bChange = true;
+            }
+            return true;
+        }
+        else if (values.size() == 5) {
+            unsigned int i = toInt(values[1]);
+            if (uniforms.lights.size() > i) {
+                uniforms.lights[i].falloff = toFloat(values[2]);
+                uniforms.lights[i].bChange = true;
+            }
+            return true;
+        }
+        else {
+            if (uniforms.lights.size() > 0) {
+                std::cout <<  uniforms.lights[0].falloff << std::endl;
+            }
+            return true;
+        }
+        return false;
+    },
+    "light_falloff[,<value>]        get or set the light falloff distance."));
+
+    _commands.push_back(Command("light_intensity", [&](const std::string& _line){ 
+         std::vector<std::string> values = split(_line,',');
+        if (values.size() == 2) {
+            if (uniforms.lights.size() > 0) {
+                uniforms.lights[0].intensity = toFloat(values[1]);
+                uniforms.lights[0].bChange = true;
+            }
+            return true;
+        }
+        else if (values.size() == 5) {
+            unsigned int i = toInt(values[1]);
+            if (uniforms.lights.size() > i) {
+                uniforms.lights[i].intensity = toFloat(values[2]);
+                uniforms.lights[i].bChange = true;
+            }
+            return true;
+        }
+        else {
+            if (uniforms.lights.size() > 0) {
+                std::cout <<  uniforms.lights[0].intensity << std::endl;
+            }
+            
+            return true;
+        }
+        return false;
+    },
+    "light_intensity[,<value>]      get or set the light intensity."));
+
+    // CAMERA
+    _commands.push_back(Command("camera_distance", [&](const std::string& _line){ 
+        std::vector<std::string> values = split(_line,',');
+        if (values.size() == 2) {
+            uniforms.getCamera().setDistance(toFloat(values[1]));
+            return true;
+        }
+        else {
+            std::cout << uniforms.getCamera().getDistance() << std::endl;
+            return true;
+        }
+        return false;
+    },
+    "camera_distance[,<dist>]           get or set the camera distance to the target."));
+
+    _commands.push_back(Command("camera_fov", [&](const std::string& _line){ 
+        std::vector<std::string> values = split(_line,',');
+        if (values.size() == 2) {
+            uniforms.getCamera().setFOV(toFloat(values[1]));
+            return true;
+        }
+        else {
+            std::cout << uniforms.getCamera().getFOV() << std::endl;
+            return true;
+        }
+        return false;
+    },
+    "camera_fov[,<field_of_view>]       get or set the camera field of view."));
+
+    _commands.push_back(Command("camera_position", [&](const std::string& _line){ 
+        std::vector<std::string> values = split(_line,',');
+        if (values.size() == 4) {
+            uniforms.getCamera().setPosition(glm::vec3(toFloat(values[1]),toFloat(values[2]),toFloat(values[3])));
+            uniforms.getCamera().lookAt(uniforms.getCamera().getTarget());
+            return true;
+        }
+        else {
+            glm::vec3 pos = uniforms.getCamera().getPosition();
+            std::cout << pos.x << ',' << pos.y << ',' << pos.z << std::endl;
+            return true;
+        }
+        return false;
+    },
+    "camera_position[,<x>,<y>,<z>]      get or set the camera position."));
+
+    _commands.push_back(Command("camera_exposure", [&](const std::string& _line){ 
+        std::vector<std::string> values = split(_line,',');
+        if (values.size() == 4) {
+            uniforms.getCamera().setExposure(toFloat(values[1]),toFloat(values[2]),toFloat(values[3]));
+            return true;
+        }
+        else {
+            std::cout << uniforms.getCamera().getExposure() << std::endl;
+            return true;
+        }
+        return false;
+    },
+    "camera_exposure[,<aper.>,<shutter>,<sensit.>]  get or set the camera exposure values."));
+
+    _commands.push_back(Command("update", [&](const std::string& _line){ 
+        if (_line == "update") {
+            flagChange();
+        }
+        return false;
+    },
+    "update                         force all uniforms to be updated", false));
 
     // LOAD SHACER 
     // -----------------------------------------------
@@ -214,7 +420,7 @@ void Sandbox::setup( WatchFileList &_files, CommandList &_commands ) {
         m_vert_dependencies.clear();
 
         loadFromPath(_files[vert_index].path, &m_vert_source, include_folders, &m_vert_dependencies);
-        }
+    }
     else {
         // If there is no use the default one
         if (geom_index == -1)
@@ -247,10 +453,10 @@ void Sandbox::setup( WatchFileList &_files, CommandList &_commands ) {
     // -----------------------------------------------
 
     if (geom_index == -1) {
-        // m_canvas_shader.addDefine("MODEL_HAS_COLORS");
-        // m_canvas_shader.addDefine("MODEL_HAS_NORMALS");
-        m_canvas_shader.addDefine("MODEL_HAS_TEXCOORDS");
-        // m_canvas_shader.addDefine("MODEL_HAS_TANGENTS");
+        // m_canvas_shader.addDefine("MODEL_VERTEX_EX_COLORS");
+        // m_canvas_shader.addDefine("MODEL_VERTEX_EX_NORMALS");
+        m_canvas_shader.addDefine("MODEL_VERTEX_TEXCOORD");
+        // m_canvas_shader.addDefine("MODEL_VERTEX_TANGENT");
     }
     else {
         m_scene.setup( _commands, uniforms);
@@ -259,6 +465,7 @@ void Sandbox::setup( WatchFileList &_files, CommandList &_commands ) {
 
     // FINISH SCENE SETUP
     // -------------------------------------------------
+    uniforms.getCamera().setViewport(getWindowWidth(), getWindowHeight());
 
     // Prepare viewport
     glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
@@ -292,7 +499,7 @@ void Sandbox::addDefine(const std::string &_define, const std::string &_value) {
         m_buffers_shaders[i].addDefine(_define, _value);
 
     if (geom_index == -1)
-        m_canvas_shader.addDefine(_define);
+        m_canvas_shader.addDefine(_define, _value);
     else
         m_scene.addDefine(_define, _value);
 
@@ -309,12 +516,12 @@ void Sandbox::delDefine(const std::string &_define) {
         m_scene.delDefine(_define);
 
     m_postprocessing_shader.delDefine(_define);
-        }
+}
 
 // ------------------------------------------------------------------------- GET
 
 bool Sandbox::isReady() {
-    return m_frame > 0;
+    return m_initialized;
 }
 
 void Sandbox::flagChange() { 
@@ -339,7 +546,7 @@ std::string Sandbox::getSource(ShaderType _type) const {
     else return m_vert_source;
 }
 
-int Sandbox::getRecordedPercentage() {
+int Sandbox::getRecordedPorcentage() {
     return ((m_record_head - m_record_start) / (m_record_end - m_record_start)) * 100 ;
 }
 
@@ -353,7 +560,7 @@ bool Sandbox::reloadShaders( WatchFileList &_files ) {
 
         if (verbose)
             std::cout << "// Reload 2D shaders" << std::endl;
-                
+
         // Reload the shader
         m_canvas_shader.detach(GL_FRAGMENT_SHADER | GL_VERTEX_SHADER);
         m_canvas_shader.load(m_frag_source, m_vert_source, verbose);
@@ -362,35 +569,27 @@ bool Sandbox::reloadShaders( WatchFileList &_files ) {
         if (verbose)
             std::cout << "// Reload 3D scene shaders" << std::endl;
 
-        if (m_scene.getCubeMap()) {
-            m_scene.addDefine("SH_ARRAY", "u_SH");
-            if (m_scene.showCubebox)
-                m_scene.addDefine("CUBE_MAP", "u_cubeMap");
-        }
-
         m_scene.loadShaders(m_frag_source, m_vert_source, verbose);
-        }
+    }
 
     // UPDATE shaders dependencies
     {
         List new_dependencies = merge(m_frag_dependencies, m_vert_dependencies);
 
-    // remove old dependencies
-    for (int i = _files.size() - 1; i >= 0; i--) {
-        if (_files[i].type == GLSL_DEPENDENCY) {
-            _files.erase( _files.begin() + i);
-        }
-    }
+        // remove old dependencies
+        for (int i = _files.size() - 1; i >= 0; i--)
+            if (_files[i].type == GLSL_DEPENDENCY)
+                _files.erase( _files.begin() + i);
 
-    // Add new dependencies
-    struct stat st;
-    for (unsigned int i = 0; i < new_dependencies.size(); i++) {
-        WatchFile file;
-        file.type = GLSL_DEPENDENCY;
-        file.path = new_dependencies[i];
-        stat( file.path.c_str(), &st );
-        file.lastChange = st.st_mtime;
-        _files.push_back(file);
+        // Add new dependencies
+        struct stat st;
+        for (unsigned int i = 0; i < new_dependencies.size(); i++) {
+            WatchFile file;
+            file.type = GLSL_DEPENDENCY;
+            file.path = new_dependencies[i];
+            stat( file.path.c_str(), &st );
+            file.lastChange = st.st_mtime;
+            _files.push_back(file);
 
             if (verbose)
                 std::cout << " Watching file " << new_dependencies[i] << " as a dependency " << std::endl;
@@ -401,24 +600,39 @@ bool Sandbox::reloadShaders( WatchFileList &_files ) {
     uniforms.checkPresenceIn(m_vert_source, m_frag_source); // Check active native uniforms
     uniforms.flagChange();                                  // Flag all user defined uniforms as changed
 
+    if (uniforms.cubemap) {
+        addDefine("SCENE_SH_ARRAY", "u_SH");
+        addDefine("SCENE_CUBEMAP", "u_cubeMap");
+    }
+
     // UPDATE Buffers
     m_buffers_total = count_buffers(m_frag_source);
     _updateBuffers();
-
+    
     // UPDATE Postprocessing
     bool havePostprocessing = check_for_postprocessing(getSource(FRAGMENT));
-    if (m_postprocessing_enabled != havePostprocessing) {
-        m_scene_fbo.allocate(getWindowWidth(), getWindowHeight(), uniforms.functions["u_sceneDepth"].present ? COLOR_DEPTH_TEXTURES : COLOR_TEXTURE_DEPTH_BUFFER );
-            }
-    m_postprocessing_enabled = havePostprocessing;
-    if (m_postprocessing_enabled) {
+    if (havePostprocessing) {
         // Specific defines for this buffer
         m_postprocessing_shader.addDefine("POSTPROCESSING");
         m_postprocessing_shader.load(m_frag_source, billboard_vert, false);
-        }
+        m_postprocessing_enabled = havePostprocessing;
+    }
+    else if (fxaa) {
+        m_postprocessing_shader.load(fxaa_frag, billboard_vert, false);
+        uniforms.functions["u_scene"].present = true;
+        m_postprocessing_enabled = true;
+    }
+    else 
+        m_postprocessing_enabled = false;
+
+    if (m_postprocessing_enabled || uniforms.functions["u_scene"].present) {
+        FboType type = uniforms.functions["u_sceneDepth"].present ? COLOR_DEPTH_TEXTURES : COLOR_TEXTURE_DEPTH_BUFFER;
+        if (!m_scene_fbo.isAllocated() || m_scene_fbo.getType() != type)
+            m_scene_fbo.allocate(getWindowWidth(), getWindowHeight(), type);
+    }
 
     return true;
-    }
+}
 
 // ------------------------------------------------------------------------- UPDATE
 void Sandbox::_updateBuffers() {
@@ -434,7 +648,7 @@ void Sandbox::_updateBuffers() {
             // New FBO
             uniforms.buffers.push_back( Fbo() );
             uniforms.buffers[i].allocate(getWindowWidth(), getWindowHeight(), COLOR_TEXTURE);
-
+            
             // New Shader
             m_buffers_shaders.push_back( Shader() );
             m_buffers_shaders[i].addDefine("BUFFER_" + toString(i));
@@ -454,7 +668,7 @@ void Sandbox::_updateBuffers() {
 // ------------------------------------------------------------------------- DRAW
 void Sandbox::_renderBuffers() {
     glDisable(GL_BLEND);
-    
+
     for (unsigned int i = 0; i < uniforms.buffers.size(); i++) {
         uniforms.buffers[i].bind();
         m_buffers_shaders[i].use();
@@ -476,34 +690,29 @@ void Sandbox::_renderBuffers() {
 
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    }
+}
 
 void Sandbox::render() {
     // RENDER SHADOW MAP
     // -----------------------------------------------
-    if (geom_index != -1) {
-        if (uniforms.functions["u_ligthShadowMap"].present)
+    if (geom_index != -1)
+        if (uniforms.functions["u_lightShadowMap"].present)
             m_scene.renderShadowMap(uniforms);
-    }
     
     // BUFFERS
     // -----------------------------------------------
-    if (uniforms.buffers.size() > 0) {
+    if (uniforms.buffers.size() > 0)
         _renderBuffers();
-    }
-    
 
     // MAIN SCENE
     // ----------------------------------------------- < main scene start
-    if (m_postprocessing_enabled) {
+    if ( (screenshotFile != "" || m_record) && !m_record_fbo.isAllocated())
+        m_record_fbo.allocate(getWindowWidth(), getWindowHeight(), COLOR_TEXTURE_DEPTH_BUFFER);
+
+    if (m_postprocessing_enabled)
         m_scene_fbo.bind();
-    }
-    else if (screenshotFile != "" || m_record) {
-        if (!m_record_fbo.isAllocated()) {
-            m_record_fbo.allocate(getWindowWidth(), getWindowHeight(), COLOR_TEXTURE_DEPTH_BUFFER);
-        }
+    else if (screenshotFile != "" || m_record)
         m_record_fbo.bind();
-    }
 
     // Clear the background
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -523,21 +732,17 @@ void Sandbox::render() {
     else {
         m_scene.render(uniforms);
         if (m_scene.showGrid || m_scene.showAxis || m_scene.showBBoxes)
-            m_scene.renderDebug();
+            m_scene.renderDebug(uniforms);
     }
-
+    
     // ----------------------------------------------- < main scene end
 
     // POST PROCESSING
     if (m_postprocessing_enabled) {
         m_scene_fbo.unbind();
-    
-        if (screenshotFile != "" || m_record) {
-             if (!m_record_fbo.isAllocated()) {
-                m_record_fbo.allocate(getWindowWidth(), getWindowHeight(), COLOR_TEXTURE_DEPTH_BUFFER);
-            }
+
+        if (screenshotFile != "" || m_record)
             m_record_fbo.bind();
-        }
     
         m_postprocessing_shader.use();
 
@@ -545,19 +750,29 @@ void Sandbox::render() {
         uniforms.feedTo( m_postprocessing_shader );
 
         // Pass textures of buffers
-        for (unsigned int i = 0; i < uniforms.buffers.size(); i++) {
+        for (unsigned int i = 0; i < uniforms.buffers.size(); i++)
             m_postprocessing_shader.setUniformTexture("u_buffer" + toString(i), &uniforms.buffers[i]);
-        }
 
         m_billboard_vbo->render( &m_postprocessing_shader );
     }
     
     if (screenshotFile != "" || m_record) {
         m_record_fbo.unbind();
+
+        if (!m_billboard_shader.isLoaded())
+            m_billboard_shader.load(dynamic_billboard_frag, dynamic_billboard_vert, false);
+
+        m_billboard_shader.use();
+        m_billboard_shader.setUniform("u_depth", float(0.0));
+        m_billboard_shader.setUniform("u_scale", 1.0, 1.0);
+        m_billboard_shader.setUniform("u_translate", 0.0, 0.0);
+        m_billboard_shader.setUniform("u_modelViewProjectionMatrix", glm::mat4(1.0) );
+        m_billboard_shader.setUniformTexture("u_tex0", &m_record_fbo, 0);
+        m_billboard_vbo->render( &m_billboard_shader );
+    }
 }
-        }
-        
-        
+
+
 void Sandbox::renderUI() {
     if (m_showPasses) {        
         glDisable(GL_DEPTH_TEST);
@@ -568,22 +783,20 @@ void Sandbox::renderUI() {
             nTotal += uniforms.functions["u_scene"].present;
             nTotal += uniforms.functions["u_sceneDepth"].present;
         }
-        nTotal += uniforms.functions["u_ligthShadowMap"].present;
+        nTotal += uniforms.functions["u_lightShadowMap"].present;
         if (nTotal > 0) {
             float w = (float)(getWindowWidth());
             float h = (float)(getWindowHeight());
             float scale = fmin(1.0f / (float)(nTotal), 0.25) * 0.5;
             float xStep = w * scale;
             float yStep = h * scale;
-            float margin = 0.0;
-            float xOffset = xStep + margin;
-            float yOffset = h - yStep - margin;
+            float xOffset = xStep;
+            float yOffset = h - yStep;
 
             if (!m_billboard_shader.isLoaded())
                 m_billboard_shader.load(dynamic_billboard_frag, dynamic_billboard_vert, false);
 
             m_billboard_shader.use();
-            // uniforms.feedTo(m_billboard_shader);
 
             for (unsigned int i = 0; i < uniforms.buffers.size(); i++) {
                 m_billboard_shader.setUniform("u_depth", float(0.0));
@@ -592,7 +805,7 @@ void Sandbox::renderUI() {
                 m_billboard_shader.setUniform("u_modelViewProjectionMatrix", getOrthoMatrix());
                 m_billboard_shader.setUniformTexture("u_tex0", &uniforms.buffers[i]);
                 m_billboard_vbo->render(&m_billboard_shader);
-                yOffset -= yStep * 2.0 + margin;
+                yOffset -= yStep * 2.0;
             }
 
             if (m_postprocessing_enabled) {
@@ -603,9 +816,10 @@ void Sandbox::renderUI() {
                     m_billboard_shader.setUniform("u_modelViewProjectionMatrix", getOrthoMatrix());
                     m_billboard_shader.setUniformTexture("u_tex0", &m_scene_fbo, 0);
                     m_billboard_vbo->render(&m_billboard_shader);
-                    yOffset -= yStep * 2.0 + margin;
+                    yOffset -= yStep * 2.0;
                 }
 
+                #if !defined(PLATFORM_RPI) && !defined(PLATFORM_RPI4)
                 if (uniforms.functions["u_sceneDepth"].present) {
                     m_billboard_shader.setUniform("u_scale", xStep, yStep);
                     m_billboard_shader.setUniform("u_translate", xOffset, yOffset);
@@ -616,19 +830,31 @@ void Sandbox::renderUI() {
                     m_billboard_shader.setUniform("u_modelViewProjectionMatrix", getOrthoMatrix());
                     m_billboard_shader.setUniformDepthTexture("u_tex0", &m_scene_fbo);
                     m_billboard_vbo->render(&m_billboard_shader);
-                    yOffset -= yStep * 2.0 + margin;
+                    yOffset -= yStep * 2.0;
                 }
+                #endif
             }
 
-            if (uniforms.functions["u_ligthShadowMap"].present && m_scene.getLightMap().getDepthTextureId() ) {
-                m_billboard_shader.setUniform("u_scale", xStep, yStep);
-                m_billboard_shader.setUniform("u_translate", xOffset, yOffset);
+        // #if !defined(PLATFORM_RPI) && !defined(PLATFORM_RPI4) 
+            if (uniforms.functions["u_lightShadowMap"].present) {
+                float x = xOffset;
+                float y = (float)(getWindowHeight()) - xOffset;
+                float w = xOffset;
+                float h = xOffset;
+
+                for (unsigned int i = 0; i < uniforms.lights.size(); i++) {
+                    if ( uniforms.lights[i].getShadowMap()->getDepthTextureId() ) {
+                        m_billboard_shader.setUniform("u_scale", w, h);
+                        m_billboard_shader.setUniform("u_translate", x, y);
                 m_billboard_shader.setUniform("u_depth", float(0.0));
                 m_billboard_shader.setUniform("u_modelViewProjectionMatrix", getOrthoMatrix());
-                m_billboard_shader.setUniformDepthTexture("u_tex0", &m_scene.getLightMap());
+                        m_billboard_shader.setUniformDepthTexture("u_tex0", uniforms.lights[i].getShadowMap());
                 m_billboard_vbo->render(&m_billboard_shader);
-                yOffset -= yStep * 2.0 + margin;
+                        x += w;
+                    }
+                }
             }
+        // #endif
         }
     }
 
@@ -663,7 +889,7 @@ void Sandbox::renderUI() {
     }
 
     if (cursor) {
-        if (m_cross_vbo == nullptr)
+        if (m_cross_vbo == nullptr) 
             m_cross_vbo = cross(glm::vec3(0.0, 0.0, 0.0), 10.).getVbo();
 
         if (!m_wireframe2D_shader.isLoaded())
@@ -686,7 +912,7 @@ void Sandbox::renderDone() {
     if (m_record) {
         onScreenshot(toString(m_record_counter, 0, 5, '0') + ".png");
 
-        m_record_head += FRAME_DELTA;
+        m_record_head += m_record_fdelta;
         m_record_counter++;
 
         if (m_record_head >= m_record_end) {
@@ -702,6 +928,13 @@ void Sandbox::renderDone() {
     m_frame++;
 
     unflagChange();
+
+    if (!m_initialized) {
+        m_initialized = true;
+        updateViewport();
+        flagChange();
+    }
+    
 }
 
 // ------------------------------------------------------------------------- ACTIONS
@@ -719,7 +952,8 @@ void Sandbox::clear() {
         delete m_cross_vbo;
 }
 
-void Sandbox::record(float _start, float _end) {
+void Sandbox::record(float _start, float _end, float fps) {
+    m_record_fdelta = 1.0/fps;
     m_record_start = _start;
     m_record_head = _start;
     m_record_end = _end;
@@ -761,7 +995,7 @@ void Sandbox::onFileChange(WatchFileList &_files, int index) {
         m_frag_source = "";
         m_frag_dependencies.clear();
 
-        if (loadFromPath(filename, &m_frag_source, include_folders, &m_frag_dependencies)) {
+        if ( loadFromPath(filename, &m_frag_source, include_folders, &m_frag_dependencies) ) {
             reloadShaders(_files);
         }
     }
@@ -769,7 +1003,7 @@ void Sandbox::onFileChange(WatchFileList &_files, int index) {
         m_vert_source = "";
         m_vert_dependencies.clear();
 
-        if (loadFromPath(filename, &m_vert_source, include_folders, &m_vert_dependencies)) {
+        if ( loadFromPath(filename, &m_vert_source, include_folders, &m_vert_dependencies) ) {
             reloadShaders(_files);
         }
     }
@@ -785,8 +1019,8 @@ void Sandbox::onFileChange(WatchFileList &_files, int index) {
         }
     }
     else if (type == CUBEMAP) {
-        if (m_scene.getCubeMap()) {
-            m_scene.getCubeMap()->load(filename, _files[index].vFlip);
+        if (uniforms.cubemap) {
+            uniforms.cubemap->load(filename, _files[index].vFlip);
         }
     }
 
@@ -812,31 +1046,46 @@ void Sandbox::onScroll(float _yoffset) {
 }
 
 void Sandbox::onMouseDrag(float _x, float _y, int _button) {
-    if (geom_index != -1)
-        m_scene.onMouseDrag(_x, _y, _button);
-
     if (_button == 1) {
         // Left-button drag is used to pan u_view2d.
         m_view2d = glm::translate(m_view2d, -getMouseVelocity());
+
+        // Left-button drag is used to rotate geometry.
+        float dist = uniforms.getCamera().getDistance();
+
+        float vel_x = getMouseVelX();
+        float vel_y = getMouseVelY();
+
+        if (fabs(vel_x) < 50.0 && fabs(vel_y) < 50.0) {
+            m_lat -= vel_x;
+            m_lon -= vel_y * 0.5;
+            uniforms.getCamera().orbit(m_lat, m_lon, dist);
+            uniforms.getCamera().lookAt(glm::vec3(0.0));
+        }
+    } 
+    else {
+        // Right-button drag is used to zoom geometry.
+        float dist = uniforms.getCamera().getDistance();
+        dist += (-.008f * getMouseVelY());
+        if (dist > 0.0f) {
+            uniforms.getCamera().setDistance( dist );
+        }
+    }
+
         flagChange();
     } 
-        }
 
 void Sandbox::onViewportResize(int _newWidth, int _newHeight) {
-    if (geom_index != -1)
-        m_scene.onViewportResize(_newWidth, _newHeight);
-
-    for (unsigned int i = 0; i < uniforms.buffers.size(); i++) {
-        uniforms.buffers[i].allocate(_newWidth, _newHeight, COLOR_TEXTURE);
-}
-
-    if (m_postprocessing_enabled) {
-        m_scene_fbo.allocate(_newWidth, _newHeight, uniforms.functions["u_sceneDepth"].present ? COLOR_DEPTH_TEXTURES : COLOR_TEXTURE_DEPTH_BUFFER);
-    }
+    uniforms.getCamera().setViewport(_newWidth, _newHeight);
     
-    if (m_record_fbo.isAllocated()) {
-        m_scene_fbo.allocate(_newWidth, _newHeight, COLOR_TEXTURE_DEPTH_BUFFER);
-    }
+    for (unsigned int i = 0; i < uniforms.buffers.size(); i++) 
+        uniforms.buffers[i].allocate(_newWidth, _newHeight, COLOR_TEXTURE);
+
+    if (m_postprocessing_enabled)
+        m_scene_fbo.allocate(_newWidth, _newHeight, uniforms.functions["u_sceneDepth"].present ? COLOR_DEPTH_TEXTURES : COLOR_TEXTURE_DEPTH_BUFFER);
+
+    if (m_record_fbo.isAllocated())
+        m_record_fbo.allocate(_newWidth, _newHeight, COLOR_TEXTURE_DEPTH_BUFFER);
 
     flagChange();
 }

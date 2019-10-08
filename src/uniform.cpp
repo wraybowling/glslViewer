@@ -37,6 +37,98 @@ UniformFunction::UniformFunction(const std::string &_type, std::function<void(Sh
     print = _print;
 }
 
+// UNIFORMS
+
+Uniforms::Uniforms(): cubemap(nullptr), m_change(false) {
+
+    // set the right distance to the camera
+    // Set up camera
+
+    cameras.push_back( Camera() );
+
+    functions["u_iblLuminance"] = UniformFunction("float", [this](Shader& _shader) {
+        _shader.setUniform("u_iblLuminance", 30000.0f * getCamera().getExposure());
+    },
+    [this]() { return toString(30000.0f * getCamera().getExposure()); });
+    
+    // CAMERA UNIFORMS
+    //
+    functions["u_camera"] = UniformFunction("vec3", [this](Shader& _shader) {
+        _shader.setUniform("u_camera", -getCamera().getPosition());
+    },
+    [this]() { return toString(-getCamera().getPosition(), ','); });
+
+    functions["u_cameraDistance"] = UniformFunction("float", [this](Shader& _shader) {
+        _shader.setUniform("u_cameraDistance", getCamera().getDistance());
+    },
+    [this]() { return toString(getCamera().getDistance()); });
+
+    functions["u_cameraNearClip"] = UniformFunction("float", [this](Shader& _shader) {
+        _shader.setUniform("u_cameraNearClip", getCamera().getNearClip());
+    },
+    [this]() { return toString(getCamera().getNearClip()); });
+
+    functions["u_cameraFarClip"] = UniformFunction("float", [this](Shader& _shader) {
+        _shader.setUniform("u_cameraFarClip", getCamera().getFarClip());
+    },
+    [this]() { return toString(getCamera().getFarClip()); });
+
+    functions["u_cameraEv100"] = UniformFunction("float", [this](Shader& _shader) {
+        _shader.setUniform("u_cameraEv100", getCamera().getEv100());
+    },
+    [this]() { return toString(getCamera().getEv100()); });
+
+    functions["u_cameraExposure"] = UniformFunction("float", [this](Shader& _shader) {
+        _shader.setUniform("u_cameraExposure", getCamera().getExposure());
+    },
+    [this]() { return toString(getCamera().getExposure()); });
+
+    functions["u_cameraAperture"] = UniformFunction("float", [this](Shader& _shader) {
+        _shader.setUniform("u_cameraAperture", getCamera().getAperture());
+    },
+    [this]() { return toString(getCamera().getAperture()); });
+
+    functions["u_cameraShutterSpeed"] = UniformFunction("float", [this](Shader& _shader) {
+        _shader.setUniform("u_cameraShutterSpeed", getCamera().getShutterSpeed());
+    },
+    [this]() { return toString(getCamera().getShutterSpeed()); });
+
+    functions["u_cameraSensitivity"] = UniformFunction("float", [this](Shader& _shader) {
+        _shader.setUniform("u_cameraSensitivity", getCamera().getSensitivity());
+    },
+    [this]() { return toString(getCamera().getSensitivity()); });
+    
+    functions["u_normalMatrix"] = UniformFunction("mat3", [this](Shader& _shader) {
+        _shader.setUniform("u_normalMatrix", getCamera().getNormalMatrix());
+    });
+
+    // CAMERA MATRIX UNIFORMS
+    functions["u_viewMatrix"] = UniformFunction("mat4", [this](Shader& _shader) {
+        _shader.setUniform("u_viewMatrix", getCamera().getViewMatrix());
+    });
+
+    functions["u_projectionMatrix"] = UniformFunction("mat4", [this](Shader& _shader) {
+        _shader.setUniform("u_projectionMatrix", getCamera().getProjectionMatrix());
+    });
+
+     // IBL UNIFORM
+    functions["u_cubeMap"] = UniformFunction("samplerCube", [this](Shader& _shader) {
+        if (cubemap) {
+            _shader.setUniformTextureCube("u_cubeMap", (TextureCube*)cubemap);
+        }
+    });
+
+    functions["u_SH"] = UniformFunction("vec3", [this](Shader& _shader) {
+        if (cubemap) {
+            _shader.setUniform("u_SH", cubemap->SH, 9);
+        }
+    });
+}
+
+Uniforms::~Uniforms(){
+
+}
+
 bool parseUniformData(const std::string &_line, UniformDataList *_uniforms) {
     bool rta = false;
     std::regex re("^(\\w+)\\,");
@@ -65,18 +157,18 @@ bool parseUniformData(const std::string &_line, UniformDataList *_uniforms) {
     return rta;
 }
 
-Uniforms::Uniforms():
-    m_change(false) {
-}
-
-Uniforms::~Uniforms(){
-
-}
-
 bool Uniforms::parseLine( const std::string &_line ) {
     bool somethingChange = parseUniformData(_line, &data);
     m_change += somethingChange;
     return somethingChange;
+}
+
+bool Uniforms::addTexture( const std::string& _name, Texture* _texture) {
+    if (textures.find(_name) == textures.end()) {
+        textures[ _name ] = _texture;
+        return true;
+    }
+    return false;
 }
 
 bool Uniforms::addTexture(const std::string& _name, const std::string& _path, WatchFileList& _files, bool _flip, bool _verbose) {
@@ -131,7 +223,6 @@ bool Uniforms::addBumpTexture(const std::string& _name, const std::string& _path
         else {
             Texture* tex = new Texture();
 
-            std::cout << "Try to load and convert BUMPMAP " << _path << std::endl;
             // load an image into the texture
             if (tex->loadBump(_path, true)) {
 
@@ -161,6 +252,41 @@ bool Uniforms::addBumpTexture(const std::string& _name, const std::string& _path
     return false;
 }
 
+void Uniforms::setCubeMap( TextureCube* _cubemap ) {
+    if (cubemap)
+        delete cubemap;
+
+    cubemap = _cubemap;
+}
+
+void Uniforms::setCubeMap( const std::string& _filename, WatchFileList& _files, bool _verbose ) {
+    struct stat st;
+    if ( stat(_filename.c_str(), &st) != 0 ) {
+        std::cerr << "Error watching for cubefile: " << _filename << std::endl;
+    }
+    else {
+        TextureCube* tex = new TextureCube();
+        if ( tex->load(_filename, true) ) {
+
+            setCubeMap(tex);
+
+            WatchFile file;
+            file.type = CUBEMAP;
+            file.path = _filename;
+            file.lastChange = st.st_mtime;
+            file.vFlip = true;
+            _files.push_back(file);
+
+            std::cout << "// " << _filename << " loaded as: " << std::endl;
+            std::cout << "//    uniform samplerCube u_cubeMap;"<< std::endl;
+            std::cout << "//    uniform vec3        u_SH[9];"<< std::endl;
+        }
+        else {
+            delete tex;
+        }
+    }
+}
+
 void Uniforms::checkPresenceIn( const std::string &_vert_src, const std::string &_frag_src ) {
     // Check active native uniforms
     for (UniformFunctionsList::iterator it = functions.begin(); it != functions.end(); ++it) {
@@ -176,13 +302,11 @@ bool Uniforms::feedTo( Shader &_shader ) {
     bool update = false;
 
     // Pass Native uniforms 
-    for (UniformFunctionsList::iterator it=functions.begin(); it!=functions.end(); ++it) {
-        if (it->second.present) {
-            if (it->second.assign) {
+    for (UniformFunctionsList::iterator it=functions.begin(); it!=functions.end(); ++it)
+        if (it->second.present)
+            if (it->second.assign)
                 it->second.assign(_shader);
-            }
-        }
-    }
+
 
     // Pass User defined uniforms
     if (m_change) {
@@ -196,7 +320,6 @@ bool Uniforms::feedTo( Shader &_shader ) {
                     _shader.setUniform(it->first, it->second.value, it->second.size);
                     update = true;
                 }
-                // it->second.change = false;
             }
         }
     }
@@ -212,6 +335,34 @@ bool Uniforms::feedTo( Shader &_shader ) {
         _shader.setUniformTexture("u_buffer" + toString(i), &buffers[i], _shader.textureIndex++ );
     }
     
+    // Pass Light Uniforms
+    if (lights.size() == 1) {
+        if (lights[0].getType() != LIGHT_DIRECTIONAL)
+            _shader.setUniform("u_light", lights[0].getPosition());
+        _shader.setUniform("u_lightColor", lights[0].color);
+        if (lights[0].getType() == LIGHT_DIRECTIONAL || lights[0].getType() == LIGHT_SPOT)
+            _shader.setUniform("u_lightDirection", lights[0].direction);
+        _shader.setUniform("u_lightIntensity", lights[0].intensity);
+        if (lights[0].falloff > 0)
+            _shader.setUniform("u_lightFalloff", lights[0].falloff);
+        _shader.setUniform("u_lightMatrix", lights[0].getBiasMVPMatrix() );
+        // _shader.setUniformDepthTexture("u_lightShadowMap", lights[0].getShadowMap() );
+    }
+    else {
+        for (unsigned int i = 0; i < lights.size(); i++) {
+            if (lights[i].getType() != LIGHT_DIRECTIONAL)
+                _shader.setUniform("u_light", lights[i].getPosition());
+            _shader.setUniform("u_lightColor", lights[i].color);
+            if (lights[i].getType() == LIGHT_DIRECTIONAL || lights[i].getType() == LIGHT_SPOT)
+                _shader.setUniform("u_lightDirection", lights[i].direction);
+            _shader.setUniform("u_lightIntensity", lights[i].intensity);
+            if (lights[i].falloff > 0)
+                _shader.setUniform("u_lightFalloff", lights[i].falloff);
+            _shader.setUniform("u_lightMatrix", lights[i].getBiasMVPMatrix() );
+            // _shader.setUniformDepthTexture("u_lightShadowMap", lights[i].getShadowMap() );
+        }
+    }
+
     return update;
 }
 
@@ -221,27 +372,47 @@ void Uniforms::flagChange() {
         it->second.change = true;
     }
     m_change = true;
+    getCamera().bChange = true;
 }
 
 void Uniforms::unflagChange() {
     if (m_change) {
         // Flag all user uniforms as NOT changed
-        for (UniformDataList::iterator it = data.begin(); it != data.end(); ++it) {
+        for (UniformDataList::iterator it = data.begin(); it != data.end(); ++it)
             it->second.change = false;
-        }
+
+        for (unsigned int i = 0; i < lights.size(); i++)
+            lights[i].bChange = false;
+
+        getCamera().bChange = false;
         m_change = false;
     }
 }
 
 bool Uniforms::haveChange() { 
+    bool lightChange = false;
+    for (unsigned int i = 0; i < lights.size(); i++) {
+        if (lights[i].bChange) {
+            lightChange = true;
+            break;
+        }
+    }
+
     return  m_change || 
             functions["u_time"].present || 
             functions["u_delta"].present ||
             functions["u_mouse"].present ||
-            functions["u_date"].present;
+            functions["u_date"].present ||
+            lightChange || getCamera().bChange;
 }
 
 void Uniforms::clear() {
+
+    if (cubemap) {
+        delete cubemap;
+        cubemap = nullptr;
+    }
+
     // Delete Textures
     for (TextureList::iterator i = textures.begin(); i != textures.end(); ++i) {
         if (i->second) {
@@ -250,6 +421,7 @@ void Uniforms::clear() {
         }
     }
     textures.clear();
+
 }
 
 void Uniforms::print(bool _all) {
@@ -287,16 +459,49 @@ void Uniforms::print(bool _all) {
 
     printBuffers();
     printTextures();
+    printLights();
 }
 
 void Uniforms::printBuffers() {
-    for (size_t i = 0; i < buffers.size(); i++) {
-        std::cout << "sampler2D," << "u_buffer" << i << std::endl;
-    }
+    for (size_t i = 0; i < buffers.size(); i++)
+        std::cout << "sampler2D,u_buffer" << i << std::endl;
+    
+    if (functions["u_scene"].present)
+        std::cout << "sampler2D,u_scene" << std::endl;
+
+    if (functions["u_sceneDepth"].present)
+        std::cout << "sampler2D,u_sceneDepth" << std::endl;
 }
 
 void Uniforms::printTextures(){
      for (TextureList::iterator it = textures.begin(); it != textures.end(); ++it) {
         std::cout << "sampler2D," << it->first << ',' << it->second->getFilePath() << std::endl;
+    }
+}
+
+void Uniforms::printLights() {
+    if (lights.size() == 1) {
+        if (lights[0].getType() != LIGHT_DIRECTIONAL)
+            std::cout << "u_light," << toString( lights[0].getPosition() ) << std::endl;
+        std::cout << "u_lightColor," << toString( lights[0].color )  << std::endl;
+        if (lights[0].getType() == LIGHT_DIRECTIONAL || lights[0].getType() == LIGHT_SPOT)
+            std::cout << "u_lightDirection," << toString( lights[0].direction ) << std::endl;
+        std::cout << "u_lightIntensity," << toString( lights[0].intensity, 3) << std::endl;
+        if (lights[0].falloff > 0.0)
+            std::cout << "u_lightFalloff," << toString( lights[0].falloff, 3) << std::endl;
+        // std::cout << "sampler2D,u_lightShadowMap" << std::endl;
+    }
+    else if (lights.size() > 1) {
+        for (unsigned int i = 0; i < lights.size(); i++) {
+            if (lights[i].getType() != LIGHT_DIRECTIONAL)
+                std::cout << "u_light," << toString( lights[i].getPosition() ) << std::endl;
+            std::cout << "u_lightColor," << toString( lights[i].color )  << std::endl;
+            if (lights[i].getType() == LIGHT_DIRECTIONAL || lights[i].getType() == LIGHT_SPOT)
+                std::cout << "u_lightDirection," << toString( lights[i].direction ) << std::endl;
+            std::cout << "u_lightIntensity," << toString( lights[i].intensity, 3) << std::endl;
+            if (lights[i].falloff > 0.0)
+                std::cout << "u_lightFalloff," << toString( lights[i].falloff, 3) << std::endl;
+            // std::cout << "sampler2D,u_lightShadowMap" << std::endl;
+        }
     }
 }
