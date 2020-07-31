@@ -3,6 +3,7 @@
 #include <vector>
 
 #include "glm/glm.hpp"
+#include "../types/mesh.h"
 
 #ifndef PI
 #define PI       3.14159265358979323846
@@ -45,22 +46,30 @@
 #endif
 
 //---------------------------------------- Geom
-int signValue(float _n);
 
-void wrapRad(double &_rad);
-void wrapDeg(float &_deg);
+float getArea(const std::vector<glm::vec3>& _pts);
+glm::vec3 getCentroid(const std::vector<glm::vec3>& _pts);
+void getBoundingBox(const std::vector<glm::vec3>& _pts, glm::vec3& _min, glm::vec3& _max);
+void expandBoundingBox(const std::vector<glm::vec3>& _pts, glm::vec3& _min, glm::vec3& _max);
+void expandBoundingBox(const glm::vec3& _pt, glm::vec3& _min, glm::vec3& _max);
 
-void scale(glm::vec3 &_vec, float _length);
-glm::vec3 getScaled(const glm::vec3 &_vec, float _length);
+void calcNormal(const glm::vec3& _v0, const glm::vec3& _v1, const glm::vec3& _v2, glm::vec3& _N);
 
-float getArea(const std::vector<glm::vec3> &_pts);
-glm::vec3 getCentroid(const std::vector<glm::vec3> &_pts);
+Mesh line(const glm::vec3 &_a, const glm::vec3 &_b);
 
-void simplify(std::vector<glm::vec3> &_pts, float _tolerance=0.3f);
-std::vector<glm::vec3> getSimplify(const std::vector<glm::vec3> &_pts, float _tolerance=0.3f);
+Mesh lineTo(const glm::vec3 &_a, const glm::vec3 &_dir, float _size);
 
-std::vector<glm::vec3> getConvexHull(std::vector<glm::vec3> &_pts);
-std::vector<glm::vec3> getConvexHull(const std::vector<glm::vec3> &_pts);
+Mesh cross(const glm::vec3 &_pos, float _width);
 
-//---------------------------------------- Conversions
-float mapValue(const float &_value, const float &_inputMin, const float &_inputMax, const float &_outputMin, const float &_outputMax, bool _clamp = true );
+Mesh rect(float _x, float _y, float _w, float _h);
+
+Mesh axis(float _size, float _y = 0.0);
+
+Mesh grid(float _size, int _segments, float _y = 0.0);
+Mesh grid(float _width, float _height, int _columns, int _rows, float _y = 0.0);
+
+Mesh floor(float _area, int _subD, float _y = 0.0);
+
+Mesh cube(float _size);
+Mesh cubeCorners(const glm::vec3 &_min_v, const glm::vec3 &_max_v, float _size);
+Mesh cubeCorners(const std::vector<glm::vec3> &_pts, float _size = 1.0);

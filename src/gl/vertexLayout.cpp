@@ -3,7 +3,7 @@
 
 std::map<GLint, GLuint> VertexLayout::s_enabledAttribs = std::map<GLint, GLuint>();
 
-VertexLayout::VertexLayout(std::vector<VertexAttrib> _attribs) : m_attribs(_attribs), m_stride(0), m_positionAttribIndex(-1), m_colorAttribIndex(-1), m_normalAttribIndex(-1), m_texCoordAttribIndex(-1) {
+VertexLayout::VertexLayout(const std::vector<VertexAttrib>& _attribs) : m_attribs(_attribs), m_stride(0) {
 
     m_stride = 0;
     for (unsigned int i = 0; i < m_attribs.size(); i++) {
@@ -27,23 +27,13 @@ VertexLayout::VertexLayout(std::vector<VertexAttrib> _attribs) : m_attribs(_attr
                 break;
         }
 
-        if ( m_attribs[i].attrType == POSITION_ATTRIBUTE ){
-            m_positionAttribIndex = i;
-        }
-        else if ( m_attribs[i].attrType == COLOR_ATTRIBUTE ){
-            m_colorAttribIndex = i;
-        }
-        else if ( m_attribs[i].attrType == NORMAL_ATTRIBUTE ){
-            m_normalAttribIndex = i;
-        }
-        else if ( m_attribs[i].attrType == TEXCOORD_ATTRIBUTE ){
-            m_texCoordAttribIndex = i;
-        }
-
         m_stride += byteSize;
 
         // TODO: Automatically add padding or warn if attributes are not byte-aligned
     }
+}
+
+VertexLayout::VertexLayout(const std::vector<VertexAttrib>& _attribs, GLint _stride) : m_attribs(_attribs), m_stride(_stride) {
 }
 
 VertexLayout::~VertexLayout() {
@@ -75,92 +65,12 @@ void VertexLayout::enable(const Shader* _program) {
     }
 }
 
-std::string VertexLayout::getDefaultVertShader() {
-    std::string rta =
-"#ifdef GL_ES\n"
-"precision mediump float;\n"
-"#endif\n"
-"\n"
-"uniform mat4 u_modelViewProjectionMatrix;\n"
-"uniform mat4 u_modelMatrix;\n"
-"uniform mat4 u_viewMatrix;\n"
-"uniform mat4 u_projectionMatrix;\n"
-"uniform mat4 u_normalMatrix;\n"
-"\n"
-"uniform float u_time;\n"
-"uniform vec2 u_mouse;\n"
-"uniform vec2 u_resolution;\n"
-"\n";
-
-    for (uint i = 0; i < m_attribs.size(); i++) {
+void VertexLayout::printAttrib() {
+    for (unsigned int i = 0; i < m_attribs.size(); i++) {
         int size = m_attribs[i].size;
-        if (m_positionAttribIndex == int(i)) {
+        if ( m_attribs[i].name == "position") {
             size = 4;
         }
-        rta += "attribute vec" + toString(size) + " a_" + m_attribs[i].name + ";\n";
-        rta += "varying vec" + toString(size) + " v_" + m_attribs[i].name + ";\n";
+        std::cout << "vec" << toString(size) << "  a_" << m_attribs[i].name << std::endl;
     }
-
-    rta += "\n"
-"void main(void) {\n"
-"\n";
-
-    for (uint i = 0; i < m_attribs.size(); i++) {
-        rta += "    v_" + m_attribs[i].name + " = a_" + m_attribs[i].name + ";\n";
-    }
-
-    if (m_positionAttribIndex != -1 && m_positionAttribIndex < int(m_attribs.size())) {
-        rta += "    gl_Position = u_modelViewProjectionMatrix * v_" + m_attribs[m_positionAttribIndex].name + ";\n";
-    }
-
-    rta +=  "}\n";
-
-    return rta;
-}
-
-std::string VertexLayout::getDefaultFragShader() {
-    std::string rta =
-"#ifdef GL_ES\n"
-"precision mediump float;\n"
-"#endif\n"
-"\n"
-"uniform mat4 u_modelViewProjectionMatrix;\n"
-"uniform mat4 u_modelMatrix;\n"
-"uniform mat4 u_viewMatrix;\n"
-"uniform mat4 u_projectionMatrix;\n"
-"uniform mat4 u_normalMatrix;\n"
-"\n"
-"uniform float u_time;\n"
-"uniform vec2 u_mouse;\n"
-"uniform vec2 u_resolution;\n"
-"\n";
-
-    for (uint i = 0; i < m_attribs.size(); i++) {
-        int size = m_attribs[i].size;
-        if (m_positionAttribIndex == int(i)) {
-            size = 4;
-        }
-        rta += "varying vec" + toString(size) + " v_" + m_attribs[i].name + ";\n";
-    }
-
-    rta += "\n"
-"void main(void) {\n"
-"\n";
-
-    if (m_colorAttribIndex != -1) {
-        rta += "    gl_FragColor = v_" + m_attribs[m_colorAttribIndex].name + ";\n";
-    }
-    else if ( m_texCoordAttribIndex != -1 ){
-        rta += "    gl_FragColor = vec4(vec3(v_" + m_attribs[m_texCoordAttribIndex].name + ",1.0),1.0);\n";
-    }
-    else if ( m_normalAttribIndex != -1 ){
-        rta += "    gl_FragColor = vec4(0.5+v_" + m_attribs[m_normalAttribIndex].name + "*0.5,1.0);\n";
-    }
-    else {
-        rta += "    gl_FragColor = vec4(1.0);\n";
-    }
-
-    rta +=  "}\n";
-
-    return rta;
 }

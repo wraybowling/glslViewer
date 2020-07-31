@@ -5,6 +5,12 @@
 #include "gl.h"
 #include "vertexLayout.h"
 
+#if defined(PLATFORM_RPI) || defined(PLATFORM_RPI4) 
+#define INDEX_TYPE_GL GLushort
+#else
+#define INDEX_TYPE_GL GLuint
+#endif
+
 #define MAX_INDEX_VALUE 65535
 
 /*
@@ -18,16 +24,10 @@ public:
     Vbo(VertexLayout* _vertexlayout, GLenum _drawMode = GL_TRIANGLES);
     virtual ~Vbo();
 
-    /*
-     * Set Vertex Layout for the Vbo object
-     */
-    void setVertexLayout(VertexLayout* _vertexLayout);
+    void setDrawMode(GLenum _drawMode = GL_TRIANGLES);  // Set Draw mode for the Vbo object
+    void setVertexLayout(VertexLayout* _vertexLayout);  // Set Vertex Layout for the Vbo object
 
-    /*
-     * Set Draw mode for the Vbo object
-     */
-    void setDrawMode(GLenum _drawMode = GL_TRIANGLES);
-
+    VertexLayout* getVertexLayout() { return m_vertexLayout; };
 
     /*
      * Adds a single vertex to the mesh; _vertex must be a pointer to the beginning of a vertex structured
@@ -44,17 +44,13 @@ public:
     /*
      * Adds a single index to the mesh; indices are unsigned shorts
      */
-    void addIndex(GLushort* _index);
+    void addIndex(INDEX_TYPE_GL* _index);
 
     /*
      * Adds _nIndices indices to the mesh; _indices must be a pointer to the beginning of a contiguous
      * block of _nIndices unsigned short indices
      */
-    void addIndices(GLushort* _indices, int _nIndices);
-
-    int numIndices() const { return m_indices.size(); };
-    int numVertices() const { return m_nVertices; };
-    VertexLayout* getVertexLayout() { return m_vertexLayout; };
+    void addIndices(INDEX_TYPE_GL* _indices, int _nIndices);
 
     /*
      * Copies all added vertices and indices into OpenGL buffer objects; After geometry is uploaded,
@@ -66,7 +62,8 @@ public:
      * Renders the geometry in this mesh using the ShaderProgram _shader; if geometry has not already
      * been uploaded it will be uploaded at this point
      */
-    void draw(const Shader* _shader);
+    void render(Shader* _shader);
+    void printInfo();
 
 private:
 
@@ -76,7 +73,7 @@ private:
     GLuint  m_glVertexBuffer;
     int     m_nVertices;
 
-    std::vector<GLushort> m_indices;
+    std::vector<INDEX_TYPE_GL> m_indices;
     GLuint  m_glIndexBuffer;
     int     m_nIndices;
 

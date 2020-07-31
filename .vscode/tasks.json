@@ -1,0 +1,43 @@
+{
+    "version": "2.0.0",
+    "shell":{
+        "task": true
+    },
+    "tasks": [
+        {
+            "type": "shell",
+            "label": "build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "new"
+            },
+            "command": "make",
+            "args": [
+            ]
+        },
+        {
+            "type": "shell",
+            "label": "clean",
+            "presentation": {
+                "reveal": "always",
+                "panel": "new"
+            },
+            "command": "make",
+            "args": [
+                "clean"
+            ]
+        },
+        {
+            "type": "shell",
+            "label": "install",
+            "presentation": {
+                "reveal": "always",
+                "panel": "new"
+            },
+            "command": "make",
+            "args": [
+                "install"
+            ]
+        }
+    ]
+}
