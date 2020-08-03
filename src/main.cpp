@@ -16,8 +16,8 @@
 #include "sandbox.h"
 #include "io/fs.h"
 #include "io/osc.h"
+#include "io/gpio.h"
 #include "tools/text.h"
-#include "raspberrypi/mcp3008.h"
 
 // GLOBAL VARIABLES
 //============================================================================
@@ -582,9 +582,7 @@ void declareCommands() {
 // Main program
 //============================================================================
 int main(int argc, char **argv){
-    // Prep the ADC
-    initMCP();
-
+    
     // Set the size
     glm::ivec4 windowPosAndSize = glm::ivec4(0);
     #if defined(DRIVER_VC) || defined(DRIVER_GBM) 
@@ -671,6 +669,7 @@ int main(int argc, char **argv){
     int textureCounter = 0; // Number of textures to load
     bool        vFlip           = true;     // Flip state
 
+            gpio::startMCP3004();
     //Load the the resources (textures)
     for (int i = 1; i < argc ; i++){
         std::string argument = std::string(argv[i]);
@@ -693,6 +692,9 @@ int main(int argc, char **argv){
         }
         else if ( argument == "--fxaa" ) {
             sandbox.fxaa = true;
+        }
+        else if ( argument == "--gpio" ) {
+            gpio::startMCP3004();
         }
         else if ( argument== "-p" || argument == "--port" ) {
             if(++i < argc)
@@ -909,7 +911,7 @@ int main(int argc, char **argv){
         else
         // Swap the buffers
         renderGL();
-        }
+    }
 
     // If is terminated by the windows manager, turn bRun off so the fileWatcher can stop
     if (!isGL()) {
@@ -952,10 +954,10 @@ void onMouseMove(float _x, float _y) {
             bRun.store(false);
         }
     }
-    }
+}
 
 void onMouseClick(float _x, float _y, int _button) {
-    }
+}
 
 void onScroll(float _yoffset) {
     sandbox.onScroll(_yoffset);
@@ -963,33 +965,22 @@ void onScroll(float _yoffset) {
 
 void onMouseDrag(float _x, float _y, int _button) {
     sandbox.onMouseDrag(_x, _y, _button);
-    }
+}
 
 void onViewportResize(int _newWidth, int _newHeight) {
     sandbox.onViewportResize(_newWidth, _newHeight);
-    }
+}
 
-    // Analog inputs from MCP3008
-    shader.setUniform("u_analog0", readMCPBasic(0));
-    shader.setUniform("u_analog1", readMCPBasic(1));
-//    shader.setUniform("u_analog2", readMCP(2));
-//    shader.setUniform("u_analog3", readMCP(3));
-//    shader.setUniform("u_analog4", readMCP(4));
-//    shader.setUniform("u_analog5", readMCP(5));
-//    shader.setUniform("u_analog6", readMCP(6));
-//    shader.setUniform("u_analog7", readMCP(7));
 void onExit() {
     // clear screen
     glClear( GL_COLOR_BUFFER_BIT );
-
-
 
     // Delete the resources of Sandbox
     sandbox.clear();
 
     // close openGL instance
     closeGL();
-    }
+}
 
 
 //  Watching Thread
@@ -1006,12 +997,12 @@ void fileWatcherThread() {
                     files[i].lastChange = date;
                     fileChanged = i;
                     filesMutex.unlock();
-        }
-    }
+                }
+            }
         }
         pal_sleep(500000);
-        }
     }
+}
 
 void runCmd(const std::string &_cmd, std::mutex &_mutex) {
     bool resolve = false;
@@ -1033,9 +1024,9 @@ void runCmd(const std::string &_cmd, std::mutex &_mutex) {
             // If got resolved stop searching
             if (resolve) {
                 break;
-}
+            }
+        }
     }
-}
 
     // If nothing match maybe the user is trying to define the content of a uniform
     if (!resolve) {
@@ -1043,28 +1034,28 @@ void runCmd(const std::string &_cmd, std::mutex &_mutex) {
         sandbox.uniforms.parseLine(_cmd);
         _mutex.unlock();
     }
-        }
+}
 
 //  Command line Thread
 //============================================================================
 void cinWatcherThread() {
     while (!sandbox.isReady()) {
         pal_sleep( micro_wait );
-}
+    }
 
     // Argument commands to execute comming from -e or -E
     if (cmds_arguments.size() > 0) {
         for (unsigned int i = 0; i < cmds_arguments.size(); i++) {
             runCmd(cmds_arguments[i], consoleMutex);
-}
+        }
         cmds_arguments.clear();
 
         // If it's using -E exit after executing all commands
         if (execute_exit) {
             // bRun.store(false);
             timeOut = true;
+        }
     }
-}
 
     // Commands comming from the console IN
     std::string console_line;
@@ -1074,3 +1065,4 @@ void cinWatcherThread() {
         std::cout << "// > ";
     }
 }
+

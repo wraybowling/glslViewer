@@ -6,6 +6,9 @@
 
 #include "tools/text.h"
 
+#include "io/gpio.h"
+
+
 std::string UniformData::getType() {
     if (size == 1 && bInt) {
         return "int";
@@ -122,6 +125,32 @@ Uniforms::Uniforms(): cubemap(nullptr), m_change(false) {
         if (cubemap) {
             _shader.setUniform("u_SH", cubemap->SH, 9);
         }
+    });
+
+    // RASPBERRY PI GPIO
+    functions["u_adc0"] = UniformFunction("float", [this](Shader& _shader) {
+        _shader.setUniform("u_adc0", gpio::readMcpSpi(0));
+    });
+    functions["u_adc1"] = UniformFunction("float", [this](Shader& _shader) {
+        _shader.setUniform("u_adc1", gpio::readMcpSpi(1));
+    });
+    functions["u_adc2"] = UniformFunction("float", [this](Shader& _shader) {
+        _shader.setUniform("u_adc2", gpio::readMcpSpi(2));
+    });
+    functions["u_adc3"] = UniformFunction("float", [this](Shader& _shader) {
+        _shader.setUniform("u_adc3", gpio::readMcpSpi(3));
+    });
+    functions["u_adc4"] = UniformFunction("float", [this](Shader& _shader) {
+        _shader.setUniform("u_adc4", gpio::readMcpSpi(4));
+    });
+    functions["u_adc5"] = UniformFunction("float", [this](Shader& _shader) {
+        _shader.setUniform("u_adc5", gpio::readMcpSpi(5));
+    });
+    functions["u_adc6"] = UniformFunction("float", [this](Shader& _shader) {
+        _shader.setUniform("u_adc6", gpio::readMcpSpi(6));
+    });
+    functions["u_adc7"] = UniformFunction("float", [this](Shader& _shader) {
+        _shader.setUniform("u_adc7", gpio::readMcpSpi(7));
     });
 }
 
@@ -523,3 +552,4 @@ void Uniforms::printLights() {
         }
     }
 }
+
