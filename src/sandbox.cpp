@@ -7,6 +7,7 @@
 #include "window.h"
 
 #include "io/pixels.h"
+#include "io/gpio.h"
 #include "tools/text.h"
 #include "tools/geom.h"
 
@@ -101,6 +102,35 @@ Sandbox::Sandbox():
     });
 
     uniforms.functions["u_modelViewProjectionMatrix"] = UniformFunction("mat4");
+    
+    // RASPBERRY PI GPIO
+    #if defined(PLATFORM_RPI) || defined(PLATFORM_RPI4)
+    uniforms.functions["u_adc0"] = UniformFunction("float", [this](Shader& _shader) {
+        _shader.setUniform("u_adc0", gpio::readMcpSpi(0));
+    });
+    uniforms.functions["u_adc1"] = UniformFunction("float", [this](Shader& _shader) {
+        _shader.setUniform("u_adc1", gpio::readMcpSpi(1));
+    });
+    uniforms.functions["u_adc2"] = UniformFunction("float", [this](Shader& _shader) {
+        _shader.setUniform("u_adc2", gpio::readMcpSpi(2));
+    });
+    uniforms.functions["u_adc3"] = UniformFunction("float", [this](Shader& _shader) {
+        _shader.setUniform("u_adc3", gpio::readMcpSpi(3));
+    });
+    uniforms.functions["u_adc4"] = UniformFunction("float", [this](Shader& _shader) {
+        _shader.setUniform("u_adc4", gpio::readMcpSpi(4));
+    });
+    uniforms.functions["u_adc5"] = UniformFunction("float", [this](Shader& _shader) {
+        _shader.setUniform("u_adc5", gpio::readMcpSpi(5));
+    });
+    uniforms.functions["u_adc6"] = UniformFunction("float", [this](Shader& _shader) {
+        _shader.setUniform("u_adc6", gpio::readMcpSpi(6));
+    });
+    uniforms.functions["u_adc7"] = UniformFunction("float", [this](Shader& _shader) {
+        _shader.setUniform("u_adc7", gpio::readMcpSpi(7));
+    });
+    #endif
+
 }
 
 Sandbox::~Sandbox() {
